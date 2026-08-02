@@ -6,9 +6,18 @@ and is managed on itself, the same way a Raspberry Pi appliance is.
 
 ## Installing
 
-1. Settings → Add-ons → Add-on store → ⋮ → **Repositories**, and add this repository's URL.
-2. Install **ClearSignage** and start it.
-3. Open it from the sidebar. The first screen is added from that page.
+1. **Add the registry credentials.** This app is a prebuilt image in a private registry,
+   so Home Assistant needs a login before it can pull it. Add `ghcr.io` with the username
+   and token you were given, under the Docker registries settings in the app store's ⋮
+   menu. Do this *first*: without it the install fails at the pull with an
+   authentication error, which reads like a broken repository rather than a missing
+   credential.
+2. Settings → Apps → Install app → ⋮ → **Repositories**, and add this repository's URL.
+3. Install **ClearSignage** and start it.
+4. Open it from the sidebar. The first screen is added from that page.
+
+The credential is read access only, and it is stored by Home Assistant rather than in
+this repository — so rotating it is a change on each install and nothing here.
 
 ## Configuration
 

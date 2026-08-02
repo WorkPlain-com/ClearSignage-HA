@@ -168,3 +168,45 @@ def test_the_pythonpath_matches_where_the_source_is_copied():
     assert "COPY src/ /opt/clearsignage/" in directives
     for entry in ("/opt/clearsignage", "/opt/clearsignage/device", "/opt/clearsignage/shared"):
         assert entry in directives
+
+
+def test_the_image_is_a_prebuilt_multi_arch_manifest():
+    """Local builds would need private-repo credentials on every customer's machine.
+
+    And the `{arch}` placeholder is the deprecated form — a manifest list lets the
+    Supervisor pull the right layer itself, so a per-arch image name here would be
+    fighting the platform.
+    """
+    assert CONFIG["image"].startswith("ghcr.io/")
+    assert "{arch}" not in CONFIG["image"]
+
+
+def test_the_pipeline_builds_both_architectures_into_one_manifest():
+    """A manifest naming one architecture installs on half the fleet and nobody notices
+    until the other half tries."""
+    pipeline = (REPO / "Jenkinsfile").read_text()
+    assert "linux/arm64" in pipeline
+    assert "linux/amd64" in pipeline
+    assert "imagetools create" in pipeline
+    # The image the pipeline pushes must be the one the manifest tells HA to pull.
+    assert CONFIG["image"] in pipeline
+
+
+def test_the_pipeline_does_not_leave_private_source_on_the_agent():
+    """The fetched tree is a full ClearSignage checkout."""
+    pipeline = (REPO / "Jenkinsfile").read_text()
+    assert "rm -rf clearsignage/src" in pipeline
+    assert "docker logout" in pipeline
+
+
+def test_the_operator_is_told_to_add_registry_credentials_first():
+    """A private image makes this a prerequisite, not a footnote.
+
+    Without the credential the install fails at the pull with an authentication error,
+    which reads like a broken repository — an operator would go back and re-check the URL
+    they just added. The instruction has to be there, and it has to come first.
+    """
+    docs = (APP / "DOCS.md").read_text()
+    registry = CONFIG["image"].split("/")[0]
+    assert registry in docs
+    assert docs.index(registry) < docs.index("Repositories")
