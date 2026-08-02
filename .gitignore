@@ -1,0 +1,6 @@
+# The ClearSignage source is fetched into the build context, never committed here
+# (scripts/fetch-source.sh). Committing it would fork the runtime this repo packages.
+clearsignage/src/
+__pycache__/
+.pytest_cache/
+*.pyc
