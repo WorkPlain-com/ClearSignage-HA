@@ -1,0 +1,18 @@
+---
+configuration:
+  host_ip:
+    name: Host address
+    description: >-
+      The address other screens on your network use to reach this machine. Leave blank to
+      use the address on the default route. Set it when this machine has more than one
+      address and screens should reach it on a particular one.
+  vhost_port:
+    name: Port for screen names
+    description: >-
+      The port each screen's .local name answers on. 80 means you can type
+      http://lobby.local with no port. Change it only if something else on this machine
+      already uses port 80.
+  log_level:
+    name: Log level
+    description: How much the app writes to its log. Leave at info unless you are chasing a fault.
+network: {}

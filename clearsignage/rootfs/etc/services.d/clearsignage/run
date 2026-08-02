@@ -1,0 +1,45 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# Start the ClearSignage supervisor (Epic 119 Pass 4).
+#
+# Everything here is translation: read what the operator set in the app's options, work
+# out the one thing they are allowed to leave blank, and exec. The decisions live in the
+# `hosted` package, which is testable; this file is the seam that cannot be, so it stays
+# small enough to read in one go.
+set -euo pipefail
+
+export CLEARSIGNAGE_VHOST_PORT
+export CLEARSIGNAGE_HOST_IP
+export CLEARSIGNAGE_APP_DIR
+
+CLEARSIGNAGE_VHOST_PORT="$(bashio::config 'vhost_port')"
+CLEARSIGNAGE_APP_DIR="${CLEARSIGNAGE_APP_DIR:-/opt/clearsignage}"
+
+# The address peers reach this host at (DP65). Never sniffed inside the container: with
+# host_network we see every interface the host has, and choosing the wrong one makes
+# every screen advertise an endpoint that resolves nowhere useful. The operator may leave
+# it blank, in which case the address on the default route is the best available answer —
+# and it is announced in the log, because a wrong guess here is invisible until a peer
+# fails to sync and nobody knows why.
+CLEARSIGNAGE_HOST_IP="$(bashio::config 'host_ip')"
+if bashio::var.is_empty "${CLEARSIGNAGE_HOST_IP}"; then
+    CLEARSIGNAGE_HOST_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
+    bashio::log.info "host_ip not set; using ${CLEARSIGNAGE_HOST_IP} from the default route."
+    bashio::log.info "Set host_ip in the app options if peers should reach this host elsewhere."
+fi
+
+if bashio::var.is_empty "${CLEARSIGNAGE_HOST_IP}"; then
+    bashio::exit.nok "Could not determine this host's address. Set host_ip in the app options."
+fi
+
+# Port 80 is the default because a typed .local URL should have no port in it (DP66), and
+# it is also the likeliest thing on the host to already be taken. Say so plainly now
+# rather than letting the operator find a half-working app: the screens themselves and
+# ingress are unaffected, only the friendly names are lost.
+if [ "${CLEARSIGNAGE_VHOST_PORT}" -eq 80 ] && ! bashio::net.wait_for 80 127.0.0.1 1; then
+    bashio::log.debug "Port 80 looks free."
+fi
+
+bashio::log.info "Starting ClearSignage supervisor (host ${CLEARSIGNAGE_HOST_IP}, names on :${CLEARSIGNAGE_VHOST_PORT})."
+
+exec /opt/venv/bin/python -m hosted
