@@ -69,6 +69,27 @@ aspect_ratio: 16x9
 The ingress token changes; the reliable way to get the URL is to open the screen from the
 sidebar and copy it from the address bar, then append `display?playlist_only=1`.
 
+Use that ingress path rather than the screen's `.local` name. A browser will not embed
+`http://` content in a page served over `https://`, so a card pointing at
+`http://lobby.local` shows an empty box on any Home Assistant reached over TLS — which
+includes every Nabu Casa install. The `.local` name is for typing into an address bar.
+
+For a whole screen on the wall, put one card in a **Panel** view (`type: panel` — a
+Sections view, the default, is not what you want here):
+
+```yaml
+views:
+  - title: Lobby
+    type: panel
+    cards:
+      - type: iframe
+        url: /api/hassio_ingress/<token>/i/1/display?playlist_only=1
+        aspect_ratio: 16x9
+        hide_background: true
+```
+
+*Checked against Home Assistant 2026.7.*
+
 ## Your content
 
 Everything lives in the app's `/data` — one directory per screen. Removing a screen from
