@@ -27,15 +27,33 @@ tests/test_packaging.py      what this repo can be wrong about
 
 ## Building
 
+`Jenkinsfile` is the pipeline. It builds both architectures with buildx and qemu, joins
+them into one multi-arch manifest with `imagetools create`, and pushes it to the
+`image:` named in `config.yaml`. Parameters: `CLEARSIGNAGE_REF` (what to build from) and
+`PUSH` (off builds both architectures and throws them away — the honest way to test a
+Dockerfile change without publishing it).
+
+Locally, one architecture at a time:
+
 ```bash
 CLEARSIGNAGE_REF=<branch-tag-or-sha> ./scripts/build.sh aarch64
 ```
+
+**Prebuilt, not built on the user's machine.** The Supervisor can build an app locally and
+for a public add-on that is the friendlier default. It is the wrong choice here for one
+concrete reason: this image is built from a *private* repository, so a local build would
+put ClearSignage credentials on every customer's Home Assistant. Publishing keeps the
+source private, turns a ten-minute compile on a CM4 into a pull, and means every install
+runs the bytes that were tested rather than whatever resolves on the day. The cost is that
+each install needs read credentials for the registry — Home Assistant stores those itself,
+per registry hostname, so they never appear in this repository.
 
 `fetch-source.sh` copies only `hosted/`, `device/` and `shared/` and drops every `tests/`
 directory. The appliance's image builder, its systemd units, the Android port and the
 cloud Worker are all absent, because a hosted instance is none of those things. The
 resolved commit is written to `clearsignage/src/CLEARSIGNAGE_REF` and baked into the
-image as an OCI label, so a running app can say exactly what it is.
+image as an OCI label, so a running app can say exactly what it is. The pipeline deletes
+that tree afterwards rather than leaving private source on a shared agent.
 
 ## Testing
 
@@ -51,8 +69,10 @@ designer tests sit red on `main` for a year.
 
 ## Installing
 
-Settings → Add-ons → Add-on store → ⋮ → **Repositories**, then add this repository's URL.
-See `clearsignage/DOCS.md` for what an operator needs to know.
+Add `ghcr.io` credentials to Home Assistant's Docker registries first — the image is
+private and the install otherwise fails at the pull. Then Settings → Apps → Install app →
+⋮ → **Repositories**, and add this repository's URL. See `clearsignage/DOCS.md` for what
+an operator needs to know.
 
 ## Not yet verified
 
