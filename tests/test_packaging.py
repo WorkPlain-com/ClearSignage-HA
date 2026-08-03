@@ -123,6 +123,11 @@ def test_the_finish_script_brings_the_whole_app_down():
     """Otherwise s6 restarts one service and the app looks healthy with no screens."""
     finish = (APP / "rootfs/etc/services.d/clearsignage/finish").read_text()
     assert "s6-svscanctl -t" in finish
+    # execline has no shell-style brace substitution: braces are block delimiters
+    # (e.g. `if { ... }`), so `${1}` is not the positional parameter `$1` — it is
+    # never substituted, and the argument s6-test receives is malformed.
+    assert "${1}" not in finish
+    assert re.search(r"s6-test \$1 -ne", finish)
 
 
 def test_the_dockerfile_installs_no_display_stack():
