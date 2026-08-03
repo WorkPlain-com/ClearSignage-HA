@@ -184,7 +184,7 @@ def test_the_image_is_a_prebuilt_multi_arch_manifest():
 def test_the_pipeline_builds_both_architectures_into_one_manifest():
     """A manifest naming one architecture installs on half the fleet and nobody notices
     until the other half tries."""
-    pipeline = (REPO / "Jenkinsfile").read_text()
+    pipeline = (REPO / "jenkinsfile-ha").read_text()
     assert "linux/arm64" in pipeline
     assert "linux/amd64" in pipeline
     assert "imagetools create" in pipeline
@@ -194,7 +194,7 @@ def test_the_pipeline_builds_both_architectures_into_one_manifest():
 
 def test_the_pipeline_does_not_leave_private_source_on_the_agent():
     """The fetched tree is a full ClearSignage checkout."""
-    pipeline = (REPO / "Jenkinsfile").read_text()
+    pipeline = (REPO / "jenkinsfile-ha").read_text()
     assert "rm -rf clearsignage/src" in pipeline
     assert "docker logout" in pipeline
 
