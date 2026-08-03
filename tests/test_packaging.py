@@ -36,6 +36,24 @@ def _dockerfile_directives() -> str:
     return "\n".join(line for line in lines if not line.lstrip().startswith("#"))
 
 
+def _service_script(name: str, *, uncommented: bool = False) -> str:
+    """Return an s6 service script, optionally with comment lines stripped.
+
+    Same trap as `_dockerfile_directives`: these scripts explain in prose which binaries
+    they must *not* call, so a test asserting the absence of one would match the sentence
+    saying so. The shebang is kept — it is the interpreter, not a comment.
+    """
+    text = (APP / "rootfs/etc/services.d/clearsignage" / name).read_text()
+    if not uncommented:
+        return text
+    lines = text.splitlines()
+    return "\n".join(
+        line
+        for line in lines
+        if line.startswith("#!") or not line.lstrip().startswith("#")
+    )
+
+
 def test_every_yaml_file_parses():
     for path in sorted(REPO.rglob("*.yaml")):
         if ".git" in path.parts or "src" in path.parts:
@@ -122,12 +140,20 @@ def test_the_run_script_execs_the_supervisor_rather_than_backgrounding_it():
 def test_the_finish_script_brings_the_whole_app_down():
     """Otherwise s6 restarts one service and the app looks healthy with no screens."""
     finish = (APP / "rootfs/etc/services.d/clearsignage/finish").read_text()
-    assert "s6-svscanctl -t" in finish
-    # execline has no shell-style brace substitution: braces are block delimiters
-    # (e.g. `if { ... }`), so `${1}` is not the positional parameter `$1` — it is
-    # never substituted, and the argument s6-test receives is malformed.
-    assert "${1}" not in finish
-    assert re.search(r"s6-test \$1 -ne", finish)
+    assert "/run/s6/basedir/bin/halt" in finish
+
+
+def test_the_finish_script_calls_nothing_s6_overlay_v3_does_not_ship():
+    """`s6-test` is a v2 binary: it moved into execline as `eltest`, and the base image
+    ships only the latter. Calling it crash-looped the container with "unable to spawn
+    s6-test" and no way for the app to ever come down cleanly.
+
+    `/var/run/s6/services` is the same mistake in path form — v3's scandir is
+    `/run/service` — so both are checked here rather than rediscovered on a screen.
+    """
+    finish = _service_script("finish", uncommented=True)
+    assert "s6-test" not in finish
+    assert "/var/run/s6/services" not in finish
 
 
 def test_the_dockerfile_installs_no_display_stack():
@@ -147,6 +173,37 @@ def test_the_dockerfile_installs_what_mdns_needs():
     assert "avahi-utils" in directives
     # ...and not a second daemon, which would contend with HA OS's for 5353 and lose.
     assert "avahi-daemon" not in directives
+
+
+def test_the_dockerfile_installs_every_command_the_run_script_calls():
+    """The run script's default path reads the host address from `ip`, and neither
+    Debian's rootfs nor the Home Assistant base image ships it.
+
+    Its absence was invisible in the worst way: `ip` exited 127, `set -o pipefail` made
+    the assignment fail, `set -e` exited the service, and the redirect to /dev/null meant
+    the container died having logged nothing at all.
+    """
+    directives = _dockerfile_directives()
+    run = _service_script("run", uncommented=True)
+    if re.search(r"\bip route\b", run):
+        assert "iproute2" in directives
+
+
+def test_host_ip_detection_cannot_kill_the_service_before_it_explains_itself():
+    """`set -e` plus a bare command substitution is a silent exit; the operator sees a
+    container that started and vanished. The detection may fail — it must not be fatal,
+    because the check right after it is what tells them to set host_ip by hand."""
+    run = _service_script("run", uncommented=True)
+    detection = re.search(r"^.*\bip route\b.*$", run, re.M)
+    assert detection, run
+    assert "|| true" in detection.group(0), detection.group(0)
+
+
+def test_an_unset_host_ip_is_not_advertised_to_peers_as_the_string_null():
+    """bashio::config returns the literal "null" for a cleared option, and every screen
+    would announce that verbatim as the address peers should reach this host at."""
+    run = _service_script("run", uncommented=True)
+    assert '"null"' in run or "'null'" in run
 
 
 def test_the_dependency_set_is_pinned_to_the_appliance_s_own_constraints():

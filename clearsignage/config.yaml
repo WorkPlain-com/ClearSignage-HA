@@ -5,7 +5,10 @@
 # comments say which one — because the interesting half of this file is what it does
 # *not* ask for.
 name: ClearSignage
-version: "0.1.0"
+# Bumped so the Supervisor actually fetches a new image. It tracks the installed app by
+# this version, so republishing the same tag leaves an existing install on the bytes it
+# already has — a rebuild alone is not something Home Assistant goes looking for.
+version: "0.1.1"
 slug: clearsignage
 description: >-
   Run one or more ClearSignage screens inside Home Assistant. Each screen is a complete,
