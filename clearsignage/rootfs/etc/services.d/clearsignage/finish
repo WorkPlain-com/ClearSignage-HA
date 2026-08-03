@@ -4,7 +4,7 @@
 # Without this, s6 restarts only this service and the app looks healthy while every
 # screen is gone. Home Assistant's own restart policy is the right thing to own a crash,
 # and it can only do that if the container actually exits.
-if { s6-test ${1} -ne 0 }
-if { s6-test ${1} -ne 256 }
+if { s6-test $1 -ne 0 }
+if { s6-test $1 -ne 256 }
 
 s6-svscanctl -t /var/run/s6/services
