@@ -74,6 +74,17 @@ private and the install otherwise fails at the pull. Then Settings → Apps → 
 ⋮ → **Repositories**, and add this repository's URL. See `clearsignage/DOCS.md` for what
 an operator needs to know.
 
+### Internal testing (current phase)
+
+There is no public install yet — the `clearsignage-ha` package on ghcr.io is a private
+package, and it stays that way for this phase. "Just add the repo by URL" is not enough
+on its own: the Supervisor always pulls the `image:` in `config.yaml` on install, so a
+tester's Home Assistant still needs its own read credentials for the private package
+(the "Installing" step above), same as a real customer install would. `PUSH=false` on the
+Jenkins job is there for the case where you want to validate a Dockerfile or `build.yaml`
+change without touching the registry at all — it builds both architectures and discards
+them instead of publishing.
+
 ## Not yet verified
 
 Nothing here has run on real Home Assistant OS. `host_dbus` reaching the host's avahi,
