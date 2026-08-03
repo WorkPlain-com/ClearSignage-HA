@@ -27,7 +27,7 @@ tests/test_packaging.py      what this repo can be wrong about
 
 ## Building
 
-`Jenkinsfile` is the pipeline. It builds both architectures with buildx and qemu, joins
+`jenkinsfile-ha` is the pipeline. It builds both architectures with buildx and qemu, joins
 them into one multi-arch manifest with `imagetools create`, and pushes it to the
 `image:` named in `config.yaml`. Parameters: `CLEARSIGNAGE_REF` (what to build from) and
 `PUSH` (off builds both architectures and throws them away — the honest way to test a
