@@ -22,10 +22,24 @@ CLEARSIGNAGE_APP_DIR="${CLEARSIGNAGE_APP_DIR:-/opt/clearsignage}"
 # and it is announced in the log, because a wrong guess here is invisible until a peer
 # fails to sync and nobody knows why.
 CLEARSIGNAGE_HOST_IP="$(bashio::config 'host_ip')"
+
+# bashio::config hands back the *string* "null" for an option the operator cleared, so
+# an unset host_ip would otherwise be advertised to every peer verbatim.
+if [ "${CLEARSIGNAGE_HOST_IP}" = "null" ]; then
+    CLEARSIGNAGE_HOST_IP=""
+fi
+
 if bashio::var.is_empty "${CLEARSIGNAGE_HOST_IP}"; then
-    CLEARSIGNAGE_HOST_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
-    bashio::log.info "host_ip not set; using ${CLEARSIGNAGE_HOST_IP} from the default route."
-    bashio::log.info "Set host_ip in the app options if peers should reach this host elsewhere."
+    # `|| true` because of `set -e` above: without it a failure here kills the service
+    # before the check below can say why, which is exactly what it looked like from the
+    # outside — a container that exited instantly having logged nothing at all.
+    CLEARSIGNAGE_HOST_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || true)"
+    if bashio::var.is_empty "${CLEARSIGNAGE_HOST_IP}"; then
+        bashio::log.warning "Could not read this host's address from the default route."
+    else
+        bashio::log.info "host_ip not set; using ${CLEARSIGNAGE_HOST_IP} from the default route."
+        bashio::log.info "Set host_ip in the app options if peers should reach this host elsewhere."
+    fi
 fi
 
 if bashio::var.is_empty "${CLEARSIGNAGE_HOST_IP}"; then

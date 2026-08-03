@@ -17,6 +17,11 @@ ENV PYTHONUNBUFFERED=1 \
 # through the *host's* daemon over host_dbus (DP66). No avahi-daemon here: a second one
 # would contend with HA OS's for 5353 and lose. dbus is the client library only.
 #
+# iproute2 supplies `ip`, which the run script reads the host's address from when the
+# operator leaves host_ip blank — the default. Neither Debian's rootfs nor the Home
+# Assistant base image ships it, and its absence killed the service before it logged a
+# single line: `ip` exited 127, and `set -o pipefail` turned that into a silent exit.
+#
 # No X, no feh, no mpv, no chromium. A hosted instance has no display to drive — the
 # browser framing /display is the screen (DP63) — so the entire appliance display stack
 # is absent rather than installed and unused.
@@ -27,6 +32,7 @@ RUN apt-get update \
         python3-venv \
         avahi-utils \
         dbus \
+        iproute2 \
         ca-certificates \
         tzdata \
     && rm -rf /var/lib/apt/lists/*
