@@ -13,7 +13,10 @@ export CLEARSIGNAGE_HOST_IP
 export CLEARSIGNAGE_APP_DIR
 
 CLEARSIGNAGE_VHOST_PORT="$(bashio::config 'vhost_port')"
-CLEARSIGNAGE_APP_DIR="${CLEARSIGNAGE_APP_DIR:-/opt/clearsignage}"
+# The directory holding the `app` package, matching the appliance's SIGNAGE_APP_DIR.
+# The Dockerfile sets this; the fallback only matters if someone runs the image with it
+# unset, and it agreeing with the Dockerfile is the point.
+CLEARSIGNAGE_APP_DIR="${CLEARSIGNAGE_APP_DIR:-/opt/clearsignage/device}"
 
 # The address peers reach this host at (DP65). Never sniffed inside the container: with
 # host_network we see every interface the host has, and choosing the wrong one makes

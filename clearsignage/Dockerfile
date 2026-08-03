@@ -8,10 +8,21 @@ FROM ${BUILD_FROM}
 # the ref; CI runs it, and so does a developer building locally.
 ARG CLEARSIGNAGE_REF=main
 
+# CLEARSIGNAGE_APP_DIR is the directory that *contains* the `app` package, not the root
+# this repo copies the source to. The appliance's own signage-api.service says the same
+# thing — `SIGNAGE_APP_DIR=/media/signage/app`, then `cd "$SIGNAGE_APP_DIR"` and
+# `uvicorn app.main:app` — and the supervisor reuses that entry point verbatim so a
+# hosted screen starts the way an appliance does.
+#
+# Pointing it one level up at /opt/clearsignage put `app` out of reach: the supervisor
+# spawns each screen with `cwd=app_dir` and an environment it builds from scratch, so
+# the PYTHONPATH below never reaches a screen and cwd is the only thing that can make
+# `app.main:app` importable. Every screen died with ModuleNotFoundError and each one
+# surfaced as a 502 through ingress.
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
-    CLEARSIGNAGE_APP_DIR=/opt/clearsignage
+    CLEARSIGNAGE_APP_DIR=/opt/clearsignage/device
 
 # avahi-utils supplies avahi-publish, which is how each screen's <name>.local is claimed
 # through the *host's* daemon over host_dbus (DP66). No avahi-daemon here: a second one
