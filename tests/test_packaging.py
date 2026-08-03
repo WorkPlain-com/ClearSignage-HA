@@ -189,6 +189,43 @@ def test_the_dockerfile_installs_every_command_the_run_script_calls():
         assert "iproute2" in directives
 
 
+def test_the_app_dir_points_at_the_package_uvicorn_is_told_to_import():
+    """The supervisor spawns each screen with ``cwd=CLEARSIGNAGE_APP_DIR`` and an
+    environment it builds from scratch, so nothing on this image's PYTHONPATH reaches a
+    screen — that working directory is the only thing that can make ``app.main:app``
+    importable, exactly as the appliance's signage-api.service cds to SIGNAGE_APP_DIR.
+
+    Pointing it at the copy root instead of the directory holding the package left every
+    screen dying with ModuleNotFoundError, which reaches the operator as a 502 from
+    ingress and says nothing about why.
+    """
+    directives = _dockerfile_directives()
+    copied_to = re.search(r"^COPY\s+src/\s+(\S+)", directives, re.M)
+    assert copied_to, directives
+    app_dir = re.search(r"CLEARSIGNAGE_APP_DIR=(\S+)", directives)
+    assert app_dir, directives
+
+    # fetch-source.sh is what guarantees the shape of the tree that gets copied: it
+    # refuses to finish unless device/app/main.py is there.
+    fetch = (REPO / "scripts/fetch-source.sh").read_text()
+    assert "device/app/main.py" in fetch, fetch
+
+    root = copied_to.group(1).rstrip("/")
+    assert app_dir.group(1).rstrip("/") == f"{root}/device"
+
+
+def test_the_run_script_agrees_with_the_dockerfile_about_where_the_app_is():
+    """Two defaults for one path is one of them being wrong later."""
+    from_dockerfile = re.search(r"CLEARSIGNAGE_APP_DIR=(\S+)", _dockerfile_directives())
+    assert from_dockerfile
+    fallback = re.search(
+        r"CLEARSIGNAGE_APP_DIR=\"\$\{CLEARSIGNAGE_APP_DIR:-([^}]+)\}\"",
+        _service_script("run", uncommented=True),
+    )
+    assert fallback
+    assert fallback.group(1).rstrip("/") == from_dockerfile.group(1).rstrip("/")
+
+
 def test_host_ip_detection_cannot_kill_the_service_before_it_explains_itself():
     """`set -e` plus a bare command substitution is a silent exit; the operator sees a
     container that started and vanished. The detection may fail — it must not be fatal,
