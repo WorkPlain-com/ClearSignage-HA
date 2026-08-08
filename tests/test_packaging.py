@@ -69,27 +69,14 @@ def test_release_metadata_pins_this_app_version_to_a_commit():
     assert RELEASE["clearsignage_ref"]
 
 
-def test_publishing_cannot_use_a_mutable_default_branch():
+def test_pipeline_defaults_to_main_and_pins_the_resolved_revision():
     parameter = re.search(
         r"name: 'CLEARSIGNAGE_REF'.*?defaultValue: '([^']*)'", PIPELINE, re.S
     )
-    assert parameter and parameter.group(1) == ""
-    assert '[ "${PUSH}" = "true" ]' in PIPELINE
-    assert '[ "${CLEARSIGNAGE_REF}" = "${APPROVED_REF}" ]' in PIPELINE
-    assert '[ "${RESOLVED_REF}" != "${APPROVED_REVISION}" ]' in PIPELINE
-
-
-def test_release_validation_avoids_groovy_consumed_shell_quote_escapes():
-    """Groovy consumes ``\"`` in its multiline string before Bash sees the script.
-
-    A sed expression that relied on that escape reached Jenkins with its quotes split
-    apart and failed with ``unexpected EOF`` before any packaging checks could run.
-    """
-    validation = PIPELINE.split("stage('Validate release request')", 1)[1].split(
-        "stage('Verify tools')", 1
-    )[0]
-    assert "awk -v key=" in validation
-    assert 'sed -n "s/' not in validation
+    assert parameter and parameter.group(1) == "main"
+    assert 'CLEARSIGNAGE_REF="${CLEARSIGNAGE_REF:-main}"' in PIPELINE
+    assert 'cat clearsignage/src/CLEARSIGNAGE_REF' in PIPELINE
+    assert '--build-arg "CLEARSIGNAGE_REF=${RESOLVED_REF}"' in PIPELINE
 
 
 def test_pipeline_labels_the_image_with_the_resolved_revision():

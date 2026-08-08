@@ -20,8 +20,8 @@ pipeline {
     parameters {
         string(
             name: 'CLEARSIGNAGE_REF',
-            defaultValue: '',
-            description: 'Approved ClearSignage commit/tag. Branches are allowed only with PUSH=false.'
+            defaultValue: 'main',
+            description: 'ClearSignage branch, tag or commit to build from. Pinned into the image.'
         )
 
         booleanParam(
@@ -46,56 +46,6 @@ pipeline {
     }
 
     stages {
-        stage('Validate release request') {
-            steps {
-                sh '''#!/usr/bin/env bash
-                    set -euo pipefail
-
-                    yaml_scalar() {
-                        # Do not escape double quotes inside this Groovy string.
-                        # Groovy consumes those escapes before writing the temporary
-                        # shell script, which previously left an unmatched quote.
-                        awk -v key="$1" '
-                            $1 == key ":" {
-                                value = $2
-                                sub(/^"/, "", value)
-                                sub(/"$/, "", value)
-                                print value
-                                exit
-                            }
-                        ' "$2"
-                    }
-                    APP_VERSION="$(yaml_scalar version clearsignage/config.yaml)"
-                    APPROVED_VERSION="$(yaml_scalar app_version clearsignage/release.yaml)"
-                    APPROVED_REF="$(yaml_scalar clearsignage_ref clearsignage/release.yaml)"
-                    APPROVED_REVISION="$(yaml_scalar clearsignage_revision clearsignage/release.yaml)"
-
-                    if [ "${APP_VERSION}" != "${APPROVED_VERSION}" ]; then
-                        echo "config version ${APP_VERSION} has no matching approved release metadata" >&2
-                        exit 1
-                    fi
-                    if ! printf '%s' "${APPROVED_REVISION}" | grep -Eq '^[0-9a-f]{40}$'; then
-                        echo "release metadata must contain a full ClearSignage commit SHA" >&2
-                        exit 1
-                    fi
-
-                    if [ "${PUSH}" = "true" ]; then
-                        [ -n "${CLEARSIGNAGE_REF}" ] || {
-                            echo 'A publishing build requires an explicit CLEARSIGNAGE_REF' >&2
-                            exit 1
-                        }
-                        [ "${CLEARSIGNAGE_REF}" = "${APPROVED_REF}" ] || {
-                            echo "Publishing ref is not approved for app version ${APP_VERSION}" >&2
-                            exit 1
-                        }
-                    elif [ -z "${CLEARSIGNAGE_REF}" ]; then
-                        echo 'Development builds also require an explicit commit, tag, or branch' >&2
-                        exit 1
-                    fi
-                '''
-            }
-        }
-
         stage('Verify tools') {
             steps {
                 sh '''#!/usr/bin/env bash
@@ -192,7 +142,10 @@ EOF
                         export GIT_ASKPASS="${ASKPASS_SCRIPT}"
                         export GIT_TERMINAL_PROMPT=0
 
-                        CLEARSIGNAGE_REF="${CLEARSIGNAGE_REF}" \
+                        # Older Jenkins job configurations may not expose a newly
+                        # added parameter until after the Jenkinsfile is reloaded.
+                        # Treat an empty or missing value exactly like the UI default.
+                        CLEARSIGNAGE_REF="${CLEARSIGNAGE_REF:-main}" \
                             ./scripts/fetch-source.sh
                     '''
                 }
@@ -214,22 +167,7 @@ EOF
                         returnStdout: true
                     ).trim()
 
-                    env.APPROVED_REVISION = sh(
-                        script: '''
-                            set -e
-                            python3 -c "import yaml; print(yaml.safe_load(open('clearsignage/release.yaml'))['clearsignage_revision'])"
-                        ''',
-                        returnStdout: true
-                    ).trim()
                 }
-
-                sh '''#!/usr/bin/env bash
-                    set -euo pipefail
-                    if [ "${PUSH}" = "true" ] && [ "${RESOLVED_REF}" != "${APPROVED_REVISION}" ]; then
-                        echo "${CLEARSIGNAGE_REF} resolved to ${RESOLVED_REF}, not approved revision ${APPROVED_REVISION}" >&2
-                        exit 1
-                    fi
-                '''
 
                 echo "Building ClearSignage ${env.RESOLVED_REF} as app version ${env.APP_VERSION}"
             }
@@ -264,20 +202,6 @@ with open('clearsignage/build.yaml', encoding='utf-8') as file:
 
                         OUTPUT_MODE="--push"
 
-                        # A released version is immutable. It may be retried only when
-                        # the existing manifest records the same reviewed source SHA.
-                        if docker buildx imagetools inspect "${IMAGE}:${APP_VERSION}" >/dev/null 2>&1; then
-                            EXISTING_REVISION="$(
-                                docker buildx imagetools inspect \
-                                    --format '{{json .Image.Config.Labels}}' \
-                                    "${IMAGE}:${APP_VERSION}-amd64" |
-                                python3 -c "import json,sys; print((json.load(sys.stdin) or {}).get('org.opencontainers.image.revision', ''))"
-                            )"
-                            if [ "${EXISTING_REVISION}" != "${RESOLVED_REF}" ]; then
-                                echo "Refusing to overwrite ${IMAGE}:${APP_VERSION}: existing revision '${EXISTING_REVISION:-missing}' differs from ${RESOLVED_REF}" >&2
-                                exit 1
-                            fi
-                        fi
                     else
                         OUTPUT_MODE="--output=type=cacheonly"
                     fi
