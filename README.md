@@ -23,6 +23,7 @@ scripts/
   fetch-source.sh            pin and fetch ClearSignage into the build context
   build.sh                   fetch + docker build, for one architecture
 tests/test_packaging.py      what this repo can be wrong about
+clearsignage/release.yaml    reviewed app-version to upstream-commit mapping
 ```
 
 ## Building
@@ -32,6 +33,22 @@ them into one multi-arch manifest with `imagetools create`, and pushes it to the
 `image:` named in `config.yaml`. Parameters: `CLEARSIGNAGE_REF` (what to build from) and
 `PUSH` (off builds both architectures and throws them away — the honest way to test a
 Dockerfile change without publishing it).
+
+## Releasing
+
+1. Merge the intended changes in the upstream ClearSignage repository and run its full
+   test suite.
+2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and use that SHA, or
+   the reviewed release tag recorded beside it, as `CLEARSIGNAGE_REF`).
+3. Increment `version` in `clearsignage/config.yaml` and update the matching
+   `app_version` in the release metadata in the same review.
+4. Run Jenkins with `PUSH=true`. It builds and publishes both `aarch64` and `amd64`; a
+   branch ref is deliberately accepted only by an opt-in `PUSH=false` development build.
+5. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
+   both platforms and the `org.opencontainers.image.revision` label. The pipeline refuses
+   to replace an existing version whose revision differs.
+6. Only after that inspection, upgrade the Home Assistant installation to the new app
+   version.
 
 Locally, one architecture at a time:
 

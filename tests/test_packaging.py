@@ -23,6 +23,8 @@ REPO = Path(__file__).resolve().parents[1]
 APP = REPO / "clearsignage"
 CONFIG = yaml.safe_load((APP / "config.yaml").read_text())
 BUILD = yaml.safe_load((APP / "build.yaml").read_text())
+RELEASE = yaml.safe_load((APP / "release.yaml").read_text())
+PIPELINE = (REPO / "jenkinsfile-ha").read_text()
 
 
 def _dockerfile_directives() -> str:
@@ -59,6 +61,26 @@ def test_every_yaml_file_parses():
         if ".git" in path.parts or "src" in path.parts:
             continue
         assert isinstance(yaml.safe_load(path.read_text()), dict), path
+
+
+def test_release_metadata_pins_this_app_version_to_a_commit():
+    assert RELEASE["app_version"] == CONFIG["version"]
+    assert re.fullmatch(r"[0-9a-f]{40}", RELEASE["clearsignage_revision"])
+    assert RELEASE["clearsignage_ref"]
+
+
+def test_publishing_cannot_use_a_mutable_default_branch():
+    parameter = re.search(
+        r"name: 'CLEARSIGNAGE_REF'.*?defaultValue: '([^']*)'", PIPELINE, re.S
+    )
+    assert parameter and parameter.group(1) == ""
+    assert '[ "${PUSH}" = "true" ]' in PIPELINE
+    assert '[ "${CLEARSIGNAGE_REF}" = "${APPROVED_REF}" ]' in PIPELINE
+    assert '[ "${RESOLVED_REF}" != "${APPROVED_REVISION}" ]' in PIPELINE
+
+
+def test_pipeline_labels_the_image_with_the_resolved_revision():
+    assert '--label "org.opencontainers.image.revision=${RESOLVED_REF}"' in PIPELINE
 
 
 def test_the_manifest_has_what_the_supervisor_requires():
