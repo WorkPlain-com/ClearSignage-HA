@@ -79,6 +79,19 @@ def test_publishing_cannot_use_a_mutable_default_branch():
     assert '[ "${RESOLVED_REF}" != "${APPROVED_REVISION}" ]' in PIPELINE
 
 
+def test_release_validation_avoids_groovy_consumed_shell_quote_escapes():
+    """Groovy consumes ``\"`` in its multiline string before Bash sees the script.
+
+    A sed expression that relied on that escape reached Jenkins with its quotes split
+    apart and failed with ``unexpected EOF`` before any packaging checks could run.
+    """
+    validation = PIPELINE.split("stage('Validate release request')", 1)[1].split(
+        "stage('Verify tools')", 1
+    )[0]
+    assert "awk -v key=" in validation
+    assert 'sed -n "s/' not in validation
+
+
 def test_pipeline_labels_the_image_with_the_resolved_revision():
     assert '--label "org.opencontainers.image.revision=${RESOLVED_REF}"' in PIPELINE
 
