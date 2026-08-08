@@ -2,6 +2,6 @@
 # Reviewed source mapping for the Home Assistant release. Publishing is allowed only
 # when the requested ref resolves to this exact ClearSignage commit. Update this file in
 # the same review that increments config.yaml's version.
-app_version: "0.1.3"
+app_version: "0.1.4"
 clearsignage_ref: "7e742073902f100a975896a962838492e9f8a24c"
 clearsignage_revision: "7e742073902f100a975896a962838492e9f8a24c"

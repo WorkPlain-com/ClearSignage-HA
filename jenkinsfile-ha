@@ -52,7 +52,18 @@ pipeline {
                     set -euo pipefail
 
                     yaml_scalar() {
-                        sed -n "s/^$1:[[:space:]]*\"\\([^\"]*\\)\"[[:space:]]*$/\\1/p" "$2"
+                        # Do not escape double quotes inside this Groovy string.
+                        # Groovy consumes those escapes before writing the temporary
+                        # shell script, which previously left an unmatched quote.
+                        awk -v key="$1" '
+                            $1 == key ":" {
+                                value = $2
+                                sub(/^"/, "", value)
+                                sub(/"$/, "", value)
+                                print value
+                                exit
+                            }
+                        ' "$2"
                     }
                     APP_VERSION="$(yaml_scalar version clearsignage/config.yaml)"
                     APPROVED_VERSION="$(yaml_scalar app_version clearsignage/release.yaml)"
