@@ -13,6 +13,7 @@ skip that let eight designer tests sit red on ClearSignage's main for a year.
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from pathlib import Path
 
@@ -25,6 +26,15 @@ CONFIG = yaml.safe_load((APP / "config.yaml").read_text())
 BUILD = yaml.safe_load((APP / "build.yaml").read_text())
 RELEASE = yaml.safe_load((APP / "release.yaml").read_text())
 PIPELINE = (REPO / "jenkinsfile-ha").read_text()
+
+
+def _load_pruner():
+    path = REPO / "scripts" / "prune-ghcr-releases.py"
+    spec = importlib.util.spec_from_file_location("prune_ghcr_releases", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _dockerfile_directives() -> str:
@@ -311,6 +321,29 @@ def test_the_pipeline_builds_both_architectures_into_one_manifest():
     assert "imagetools create" in pipeline
     # The image the pipeline pushes must be the one the manifest tells HA to pull.
     assert CONFIG["image"] in pipeline
+
+
+def test_the_pipeline_keeps_only_the_current_and_previous_image_releases():
+    assert "stage('Prune old releases')" in PIPELINE
+    assert "expression { params.PUSH }" in PIPELINE
+    assert '"${APP_VERSION}"' in PIPELINE
+
+    pruner = _load_pruner()
+    versions = []
+    version_id = 1
+    for release in ("0.1.87", "0.1.88", "0.1.89"):
+        for suffix in ("", "-aarch64", "-amd64"):
+            tags = [f"{release}{suffix}"]
+            if release == "0.1.89" and not suffix:
+                tags.append("latest")
+            versions.append(
+                {"id": version_id, "metadata": {"container": {"tags": tags}}}
+            )
+            version_id += 1
+    # An untagged platform manifest may still be referenced by a retained index.
+    versions.append({"id": 10, "metadata": {"container": {"tags": []}}})
+
+    assert pruner.versions_to_delete(versions, "0.1.89") == [1, 2, 3]
 
 
 def test_the_pipeline_does_not_leave_private_source_on_the_agent():
