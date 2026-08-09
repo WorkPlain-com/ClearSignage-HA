@@ -44,8 +44,9 @@ Three ways, and they are not equivalent:
   through Nabu Casa, with no port forwarding.
 - **`http://<name>.local`** — e.g. `http://lobby.local` — from a browser on the same
   network. Convenient for a wall tablet. You will be asked for the screen's PIN.
-- **`http://<host>:810N`** — how *other screens* find and sync with this one. Not meant
-  for people.
+- **`http://<host>:810N`** — how *other screens* find and sync with this one, and the
+  address to put a screen's `/display` on a dashboard (see below). Not somewhere to go
+  looking for settings.
 
 ## What is different from a Raspberry Pi
 
@@ -66,8 +67,31 @@ capability genuinely is not here, not because it was left out:
 
 ## Putting a screen on a dashboard
 
-Add a **Webpage** card and point it at that screen's display. Use `?playlist_only=1` —
-without it a composed screen would try to render itself inside itself:
+Add a **Webpage** card and point it at that screen's display. The fleet page shows each
+screen's address ready to paste — open ClearSignage from the sidebar and copy it from the
+"Put on a dashboard" column:
+
+```yaml
+type: iframe
+url: http://192.168.1.50:8101/display?playlist_only=1
+aspect_ratio: 16x9
+```
+
+Two things about that URL. `?playlist_only=1`, because without it a composed screen tries
+to render itself inside itself. And `8101` is screen 1 — screen 2 is `8102`, and so on.
+
+**Do not use the address in your own address bar.** That one is an ingress path, and an
+ingress path belongs to *your Home Assistant session* rather than to the screen. Anyone
+else who opens the dashboard — most importantly a wall tablet signed in as a different
+user — gets **401** from it, which looks exactly like a broken screen. The display
+address above needs no sign-in at all: a screen's display carries no controls and no
+secrets, which is what makes it safe to hand out.
+
+### If your Home Assistant is reached over HTTPS
+
+A browser will not embed `http://` content in a page served over `https://`, so on a Nabu
+Casa install — or any Home Assistant behind TLS — the card above shows an empty box. Use
+the ingress path there instead, and accept that it only works for the person signed in:
 
 ```yaml
 type: iframe
@@ -75,13 +99,8 @@ url: /api/hassio_ingress/<token>/i/1/display?playlist_only=1
 aspect_ratio: 16x9
 ```
 
-The ingress token changes; the reliable way to get the URL is to open the screen from the
-sidebar and copy it from the address bar, then append `display?playlist_only=1`.
-
-Use that ingress path rather than the screen's `.local` name. A browser will not embed
-`http://` content in a page served over `https://`, so a card pointing at
-`http://lobby.local` shows an empty box on any Home Assistant reached over TLS — which
-includes every Nabu Casa install. The `.local` name is for typing into an address bar.
+The token changes; get it by opening the screen from the sidebar, copying the URL from the
+address bar, and appending `display?playlist_only=1`.
 
 For a whole screen on the wall, put one card in a **Panel** view (`type: panel` — a
 Sections view, the default, is not what you want here):
@@ -92,7 +111,7 @@ views:
     type: panel
     cards:
       - type: iframe
-        url: /api/hassio_ingress/<token>/i/1/display?playlist_only=1
+        url: http://192.168.1.50:8101/display?playlist_only=1
         aspect_ratio: 16x9
         hide_background: true
 ```
