@@ -251,6 +251,28 @@ with open('clearsignage/build.yaml', encoding='utf-8') as file:
                 '''
             }
         }
+
+        stage('Prune old releases') {
+            when {
+                expression { params.PUSH }
+            }
+            steps {
+                sh '''#!/usr/bin/env bash
+                    set -euo pipefail
+
+                    # The package contains a multi-architecture index plus the two
+                    # architecture tags for every release. Keep all three objects for
+                    # N and N-1, and delete tagged objects belonging to older releases.
+                    # The Jenkins PAT therefore needs delete:packages in addition to
+                    # the package write permission used above.
+                    GHCR_TOKEN="${GHCR_PSW}" \
+                        ./scripts/prune-ghcr-releases.py \
+                        workplain-com \
+                        clearsignage-ha \
+                        "${APP_VERSION}"
+                '''
+            }
+        }
     }
 
     post {
