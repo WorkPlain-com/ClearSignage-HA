@@ -18,10 +18,30 @@ pipeline {
     agent any
 
     parameters {
-        string(
+        // Which ClearSignage branch this image is built from.
+        //
+        // `prod` is first, and therefore the default, because a published add-on image
+        // is a release: it reaches customers' Home Assistant installs, so it should
+        // carry code that has been through the release gate rather than whatever is on
+        // main today. It defaulted to `main`, which was right while main was the only
+        // branch that existed and wrong the moment releases started being cut from
+        // beta and prod.
+        //
+        // Ordered by how much has been asked of the code, not alphabetically.
+        choice(
             name: 'CLEARSIGNAGE_REF',
-            defaultValue: 'main',
-            description: 'ClearSignage branch, tag or commit to build from. Pinned into the image.'
+            choices: ['prod', 'beta', 'main'],
+            description: 'ClearSignage branch to build from. prod is released code; beta is the pre-release channel; main is development.'
+        )
+
+        // A branch is what you want almost always; an exact commit is what you want
+        // when reproducing a published image. The pipeline records the resolved commit
+        // as the image revision, so rebuilding one means naming that commit — which a
+        // choice alone cannot express, and fetch-source.sh already handles.
+        string(
+            name: 'CLEARSIGNAGE_REF_OVERRIDE',
+            defaultValue: '',
+            description: 'Optional exact tag or commit SHA to build instead of the branch above. Leave empty to use the branch.'
         )
 
         booleanParam(
@@ -142,10 +162,16 @@ EOF
                         export GIT_ASKPASS="${ASKPASS_SCRIPT}"
                         export GIT_TERMINAL_PROMPT=0
 
-                        # Older Jenkins job configurations may not expose a newly
-                        # added parameter until after the Jenkinsfile is reloaded.
-                        # Treat an empty or missing value exactly like the UI default.
-                        CLEARSIGNAGE_REF="${CLEARSIGNAGE_REF:-main}" \
+                        # An exact tag or commit wins over the branch choice when one
+                        # was given; otherwise the branch is used.
+                        #
+                        # Older Jenkins job configurations may not expose a newly added
+                        # parameter until after the Jenkinsfile is reloaded, so an empty
+                        # or missing value has to mean the same as the UI default —
+                        # which is now prod. Getting this fallback wrong is how a job
+                        # silently keeps building the old default after the default
+                        # changed.
+                        CLEARSIGNAGE_REF="${CLEARSIGNAGE_REF_OVERRIDE:-${CLEARSIGNAGE_REF:-prod}}" \
                             ./scripts/fetch-source.sh
                     '''
                 }

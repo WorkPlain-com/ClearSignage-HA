@@ -79,14 +79,52 @@ def test_release_metadata_pins_this_app_version_to_a_commit():
     assert RELEASE["clearsignage_ref"]
 
 
-def test_pipeline_defaults_to_main_and_pins_the_resolved_revision():
-    parameter = re.search(
-        r"name: 'CLEARSIGNAGE_REF'.*?defaultValue: '([^']*)'", PIPELINE, re.S
-    )
-    assert parameter and parameter.group(1) == "main"
-    assert 'CLEARSIGNAGE_REF="${CLEARSIGNAGE_REF:-main}"' in PIPELINE
+def test_pipeline_defaults_to_prod_and_pins_the_resolved_revision():
+    """A published image is a release, so it is built from released code.
+
+    This defaulted to `main`, which was right while main was the only branch that
+    existed. Once releases are cut from beta and prod, an add-on built from main
+    ships customers device code that has been through no release gate and is ahead
+    of what the rest of the fleet is running.
+    """
+    choices = re.search(r"name: 'CLEARSIGNAGE_REF',\s*choices: \[([^\]]*)\]", PIPELINE)
+    assert choices, "CLEARSIGNAGE_REF is no longer a branch choice"
+    listed = [value.strip().strip("'") for value in choices.group(1).split(",")]
+    assert listed[0] == "prod", f"the first choice is the Jenkins default; got {listed}"
+    assert listed == ["prod", "beta", "main"]
+
     assert 'cat clearsignage/src/CLEARSIGNAGE_REF' in PIPELINE
     assert '--build-arg "CLEARSIGNAGE_REF=${RESOLVED_REF}"' in PIPELINE
+
+
+def test_an_unset_parameter_falls_back_to_the_current_default():
+    """The fallback has to move with the default, or the change does not take.
+
+    A job configuration created before the parameter existed passes nothing, and
+    Jenkins does not backfill it. If the shell fallback still said `main`, those
+    jobs would go on building main while the UI claimed the default was prod —
+    the change would look applied and not be.
+    """
+    assert "${CLEARSIGNAGE_REF:-prod}" in PIPELINE
+    assert "CLEARSIGNAGE_REF:-main" not in PIPELINE
+
+    script = (REPO / "scripts" / "fetch-source.sh").read_text(encoding="utf-8")
+    assert 'REF="${CLEARSIGNAGE_REF:-prod}"' in script, (
+        "fetch-source.sh is runnable by hand and carries its own default; it must "
+        "agree with the pipeline's"
+    )
+
+
+def test_an_exact_commit_can_still_be_built():
+    """Reproducing a published image means naming its commit, which a choice cannot.
+
+    The pipeline records the resolved commit as the image revision, so that
+    capability is the point of recording it. `fetch-source.sh` already has the
+    SHA-fetch fallback; the override is what reaches it.
+    """
+    assert "name: 'CLEARSIGNAGE_REF_OVERRIDE'" in PIPELINE
+    # The override wins over the branch, and both fall back to the default.
+    assert '"${CLEARSIGNAGE_REF_OVERRIDE:-${CLEARSIGNAGE_REF:-prod}}"' in PIPELINE
 
 
 def test_pipeline_labels_the_image_with_the_resolved_revision():
