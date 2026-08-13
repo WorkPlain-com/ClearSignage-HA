@@ -30,16 +30,23 @@ clearsignage/release.yaml    reviewed app-version to upstream-commit mapping
 
 `jenkinsfile-ha` is the pipeline. It builds both architectures with buildx and qemu, joins
 them into one multi-arch manifest with `imagetools create`, and pushes it to the
-`image:` named in `config.yaml`. Parameters: `CLEARSIGNAGE_REF` (what to build from) and
-`PUSH` (off builds both architectures and throws them away — the honest way to test a
-Dockerfile change without publishing it).
+`image:` named in `config.yaml`. Parameters:
+
+- `CLEARSIGNAGE_REF` — which upstream branch to build from: **`prod`** (default), `beta`,
+  or `main`. A published image reaches customers' Home Assistant installs, so it defaults
+  to the branch that has been through the release gate rather than to development.
+- `CLEARSIGNAGE_REF_OVERRIDE` — an exact tag or commit SHA, used instead of the branch
+  when set. This is how a previously published image is reproduced: the pipeline records
+  the resolved commit as the image revision, so rebuilding one means naming that commit.
+- `PUSH` — off builds both architectures and throws them away, the honest way to test a
+  Dockerfile change without publishing it.
 
 ## Releasing
 
 1. Merge the intended changes in the upstream ClearSignage repository and run its full
    test suite.
-2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and use that SHA, or
-   the reviewed release tag recorded beside it, as `CLEARSIGNAGE_REF`).
+2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and pass that SHA, or
+   the reviewed release tag recorded beside it, as `CLEARSIGNAGE_REF_OVERRIDE`).
 3. Increment `version` in `clearsignage/config.yaml` and update the matching
    `app_version` in the release metadata in the same review.
 4. Run Jenkins with `PUSH=true`. It builds and publishes both `aarch64` and `amd64`; a
