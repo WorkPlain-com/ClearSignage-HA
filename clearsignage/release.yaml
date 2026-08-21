@@ -2,6 +2,6 @@
 # Reviewed upstream source mapping for the Home Assistant release. Publishing is allowed
 # only when the requested ref resolves to this exact ClearSignage commit. Update both
 # source fields when reviewing a new upstream release.
-app_version: "0.1.918"
+app_version: "0.1.919"
 clearsignage_ref: "7e742073902f100a975896a962838492e9f8a24c"
 clearsignage_revision: "7e742073902f100a975896a962838492e9f8a24c"
