@@ -23,7 +23,7 @@ scripts/
   fetch-source.sh            pin and fetch ClearSignage into the build context
   build.sh                   fetch + docker build, for one architecture
 tests/test_packaging.py      what this repo can be wrong about
-clearsignage/release.yaml    reviewed upstream reference and commit mapping
+clearsignage/release.yaml    reviewed app-version to upstream-commit mapping
 ```
 
 ## Building
