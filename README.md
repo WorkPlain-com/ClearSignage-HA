@@ -23,7 +23,7 @@ scripts/
   fetch-source.sh            pin and fetch ClearSignage into the build context
   build.sh                   fetch + docker build, for one architecture
 tests/test_packaging.py      what this repo can be wrong about
-clearsignage/release.yaml    reviewed app-version to upstream-commit mapping
+clearsignage/release.yaml    reviewed upstream reference and commit mapping
 ```
 
 ## Building
@@ -45,10 +45,11 @@ them into one multi-arch manifest with `imagetools create`, and pushes it to the
 
 1. Merge the intended changes in the upstream ClearSignage repository and run its full
    test suite.
-2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and pass that SHA, or
-   the reviewed release tag recorded beside it, as `CLEARSIGNAGE_REF_OVERRIDE`).
-3. Increment `version` in `clearsignage/config.yaml` and update the matching
-   `app_version` in the release metadata in the same review.
+2. Update `clearsignage_ref` and `clearsignage_revision` in `clearsignage/release.yaml`:
+   record the reviewed release tag or commit as the reference and pin the resulting full
+   commit SHA as the revision. Pass the reference as `CLEARSIGNAGE_REF_OVERRIDE`.
+3. Increment `version` only in `clearsignage/config.yaml`; it is the single source of
+   truth for the app version.
 4. Run Jenkins with `PUSH=true`. It builds and publishes both `aarch64` and `amd64`; a
    branch ref is deliberately accepted only by an opt-in `PUSH=false` development build.
 5. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking

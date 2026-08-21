@@ -73,8 +73,7 @@ def test_every_yaml_file_parses():
         assert isinstance(yaml.safe_load(path.read_text()), dict), path
 
 
-def test_release_metadata_pins_this_app_version_to_a_commit():
-    assert RELEASE["app_version"] == CONFIG["version"]
+def test_release_metadata_pins_the_upstream_source():
     assert re.fullmatch(r"[0-9a-f]{40}", RELEASE["clearsignage_revision"])
     assert RELEASE["clearsignage_ref"]
 
