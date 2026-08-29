@@ -73,10 +73,54 @@ def test_every_yaml_file_parses():
         assert isinstance(yaml.safe_load(path.read_text()), dict), path
 
 
-def test_release_metadata_pins_this_app_version_to_a_commit():
-    assert RELEASE["app_version"] == CONFIG["version"]
+def test_release_metadata_pins_a_reviewed_commit():
     assert re.fullmatch(r"[0-9a-f]{40}", RELEASE["clearsignage_revision"])
     assert RELEASE["clearsignage_ref"]
+
+
+def test_the_app_version_is_stated_in_exactly_one_place():
+    """One number to bump, and the manifest is where it has to be.
+
+    The Supervisor parses `config.yaml` and tracks an installed app by the version in it,
+    so that one cannot be generated or templated — which makes it the source and every
+    other copy a liability. `release.yaml` used to carry one, kept in step by a test that
+    forced an edit rather than a review; the publish-time revision check replaced it.
+
+    Asserted over every YAML file rather than the one that used to have it, because the
+    next copy will be added somewhere else.
+    """
+    assert CONFIG["version"], "the manifest states no version"
+
+    for path in sorted(REPO.rglob("*.yaml")):
+        if ".git" in path.parts or "src" in path.parts or path.name == "config.yaml":
+            continue
+        loaded = yaml.safe_load(path.read_text()) or {}
+        repeated = {
+            key: value
+            for key, value in loaded.items()
+            if isinstance(value, str) and value == CONFIG["version"]
+        }
+        assert not repeated, (
+            f"{path.relative_to(REPO)} repeats the app version in {sorted(repeated)}; "
+            f"read it from clearsignage/config.yaml instead"
+        )
+
+
+def test_the_pipeline_refuses_to_publish_a_commit_nobody_reviewed():
+    """release.yaml's own sentence, made true.
+
+    It has always said publishing is allowed only when the requested ref resolves to the
+    reviewed commit, and nothing checked it — the pipeline never opened the file. A claim
+    in a comment that no code enforces is worse than no claim, because the review it
+    describes can be skipped by simply not doing it.
+
+    Gated on PUSH, and that is asserted too: a `PUSH=false` build is how a Dockerfile
+    change is tested against any branch, so gating that would make the dry run useless.
+    """
+    assert "release.yaml" in PIPELINE, "the pipeline never reads the reviewed pin"
+    assert "clearsignage_revision" in PIPELINE
+    assert "if (params.PUSH) {" in PIPELINE, "the check must not run on a dry-run build"
+    assert "Refusing to publish" in PIPELINE
 
 
 def test_pipeline_defaults_to_prod_and_pins_the_resolved_revision():
@@ -201,10 +245,29 @@ def test_every_option_is_explained_to_the_operator():
         assert entry.get("description"), key
 
 
-def test_the_run_script_execs_the_supervisor_rather_than_backgrounding_it():
-    """s6 supervises PID 1 of the service; a backgrounded process is unsupervised."""
+def test_the_run_script_execs_the_venue_rather_than_backgrounding_it():
+    """s6 supervises PID 1 of the service; a backgrounded process is unsupervised.
+
+    ``-m clearvenue``, not ``-m hosted`` (DP92): a venue is the supervisor *plus* the
+    surfaces that make it the building's source of truth — the till, enrolment, the
+    replication lane. Running the supervisor alone is what left an operator here with the
+    Screens page and nothing else, so the module named is the whole of that fix.
+    """
     run = (APP / "rootfs/etc/services.d/clearsignage/run").read_text()
-    assert re.search(r"^exec .*-m hosted$", run, re.M), run[-200:]
+    assert re.search(r"^exec .*-m clearvenue$", run, re.M), run[-200:]
+
+
+def test_the_run_script_says_which_platform_is_hosting_the_venue():
+    """Left unset, ``clearvenue.hosts`` resolves Ubuntu Core — the wrong answer here.
+
+    That default is deliberate upstream (it is the platform the venue snap ships on), and
+    it is exactly why this file has to state its own: an unstated venue on Home Assistant
+    would mount a sign-in of its own over an operator the Supervisor has already
+    authenticated, and try to bind a privileged port it does not own.
+    """
+    run = (APP / "rootfs/etc/services.d/clearsignage/run").read_text()
+    assert re.search(r"^CLEARVENUE_HOST=home-assistant$", run, re.M), run[:400]
+    assert "export CLEARVENUE_HOST" in run, "set but never exported reaches no child"
 
 
 def test_the_finish_script_brings_the_whole_app_down():
@@ -402,3 +465,35 @@ def test_the_operator_is_told_to_add_registry_credentials_first():
     registry = CONFIG["image"].split("/")[0]
     assert registry in docs
     assert docs.index(registry) < docs.index("Repositories")
+
+
+def test_the_image_contains_the_package_the_run_script_execs():
+    """The two files that must agree, and the way they can silently stop agreeing.
+
+    ``fetch-source.sh`` decides what goes into the image; ``run`` decides what is started
+    from it. Nothing else connects them, so a package dropped from the copy list — or a
+    module renamed upstream — produces an image that builds cleanly, passes every other
+    test here, and then exits with ``No module named clearvenue`` on somebody's Home
+    Assistant.
+
+    Asserted both ways round: the package is copied, *and* the fetch script checks it
+    arrived. The second is what turns an upstream rename into a failed build rather than
+    a published image.
+    """
+    fetch = (REPO / "scripts" / "fetch-source.sh").read_text(encoding="utf-8")
+    run = (APP / "rootfs/etc/services.d/clearsignage/run").read_text(encoding="utf-8")
+
+    execed = re.search(r"^exec .*-m (\w+)$", run, re.M)
+    assert execed, "the run script execs no module at all"
+    package = execed.group(1)
+
+    copied = re.search(r"^for path in ([^;]+); do$", fetch, re.M)
+    assert copied, "fetch-source.sh no longer states which paths it copies"
+    assert package in copied.group(1).split(), (
+        f"the run script starts {package!r}, which fetch-source.sh does not copy: "
+        f"the image would build without it"
+    )
+    assert f'"${{DEST}}/{package}/__main__.py"' in fetch, (
+        f"{package} is copied but never verified, so an upstream rename would publish "
+        f"an image that cannot start"
+    )

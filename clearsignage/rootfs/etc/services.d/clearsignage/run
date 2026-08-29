@@ -1,16 +1,34 @@
 #!/usr/bin/with-contenv bashio
 # shellcheck shell=bash
-# Start the ClearSignage supervisor (Epic 119 Pass 4).
+# Start ClearVenue, hosted by Home Assistant (Epic 119 Pass 4; DP92).
 #
 # Everything here is translation: read what the operator set in the app's options, work
 # out the one thing they are allowed to leave blank, and exec. The decisions live in the
-# `hosted` package, which is testable; this file is the seam that cannot be, so it stays
-# small enough to read in one go.
+# `clearvenue` and `hosted` packages, which are testable; this file is the seam that
+# cannot be, so it stays small enough to read in one go.
+#
+# **Why `-m clearvenue` and not `-m hosted`.** ClearVenue is a *role* — a machine that
+# runs several screens and is also the venue's source of truth for authoritative data
+# (a till today, a calendar or a transport board later) — and how that role is hosted is
+# a swappable value inside the package (`clearvenue/hosts/`). `hosted` alone is the
+# supervisor half: it runs the screens and has no till, no enrolment and no replication
+# lane, which is what this add-on shipped before and why an operator here found the
+# Screens page and nothing else. Every Home Assistant install is a venue.
+#
+# The fleet does not move. `clearvenue.paths` resolves its root to `/data` on this
+# platform — the same `/data/instances.json` and `/data/instances/<n>/` the supervisor
+# has always used — so an existing install keeps its screens and their content.
 set -euo pipefail
 
+export CLEARVENUE_HOST
 export CLEARSIGNAGE_VHOST_PORT
 export CLEARSIGNAGE_HOST_IP
 export CLEARSIGNAGE_APP_DIR
+
+# Which platform is hosting the venue (DP92). Decides that Home Assistant has already
+# authenticated the operator, so no second sign-in is mounted (DP87), and that the app is
+# served on two listeners rather than binding a privileged port itself.
+CLEARVENUE_HOST=home-assistant
 
 CLEARSIGNAGE_VHOST_PORT="$(bashio::config 'vhost_port')"
 # The directory holding the `app` package, matching the appliance's SIGNAGE_APP_DIR.
@@ -57,6 +75,6 @@ if [ "${CLEARSIGNAGE_VHOST_PORT}" -eq 80 ] && ! bashio::net.wait_for 80 127.0.0.
     bashio::log.debug "Port 80 looks free."
 fi
 
-bashio::log.info "Starting ClearSignage supervisor (host ${CLEARSIGNAGE_HOST_IP}, names on :${CLEARSIGNAGE_VHOST_PORT})."
+bashio::log.info "Starting ClearVenue (host ${CLEARSIGNAGE_HOST_IP}, names on :${CLEARSIGNAGE_VHOST_PORT})."
 
-exec /opt/venv/bin/python -m hosted
+exec /opt/venv/bin/python -m clearvenue

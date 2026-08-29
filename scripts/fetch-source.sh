@@ -7,10 +7,16 @@
 # its built artefact does. Keeping that line here means this repo can never quietly fork
 # the runtime it is supposed to package.
 #
-# Only three paths are copied, and the omissions are the point: `hosted/` is the
-# supervisor, `device/` is one screen, `shared/` is the single-sourced operator UI. The
-# appliance's image builder, its systemd units, its Android port and the cloud Worker are
-# all absent, because a hosted instance is none of those things.
+# Only four paths are copied, and the omissions are the point: `hosted/` is the
+# supervisor, `device/` is one screen, `shared/` is the single-sourced operator UI, and
+# `clearvenue/` is the venue role this add-on runs (DP92) — the till, enrolment, and the
+# replication lane that feeds a screen its prices. The appliance's image builder, its
+# systemd units, its Android port and the cloud Worker are all absent, because a hosted
+# instance is none of those things.
+#
+# `clearvenue/` is the newest of the four and the reason the add-on execs `-m clearvenue`
+# rather than `-m hosted`: a venue is a supervisor plus its own surfaces, and which
+# platform hosts it is a value inside that package rather than a second implementation.
 set -euo pipefail
 
 # prod, not main: a published add-on image is a release and reaches customers'
@@ -36,7 +42,7 @@ git clone --quiet --depth 1 --branch "${REF}" "${REPO}" "${WORK}/clearsignage" 2
 
 rm -rf "${DEST}"
 mkdir -p "${DEST}"
-for path in hosted device shared; do
+for path in hosted device shared clearvenue; do
     cp -a "${WORK}/clearsignage/${path}" "${DEST}/${path}"
 done
 
@@ -56,7 +62,9 @@ for required in \
     "${DEST}/device/constraints.txt" \
     "${DEST}/device/app/main.py" \
     "${DEST}/shared/pyproject.toml" \
-    "${DEST}/hosted/__main__.py"
+    "${DEST}/hosted/__main__.py" \
+    "${DEST}/clearvenue/__main__.py" \
+    "${DEST}/clearvenue/hosts/__init__.py"
 do
     [ -f "${required}" ] || { echo "missing from source: ${required}" >&2; exit 1; }
 done

@@ -185,6 +185,10 @@ EOF
                         returnStdout: true
                     ).trim()
 
+                    // config.yaml is the one place the app version lives. It has to be a
+                    // literal there — the Supervisor parses that manifest and tracks an
+                    // installed app by it — so everything else reads it from here rather
+                    // than keeping a second copy that has to be edited in step.
                     env.APP_VERSION = sh(
                         script: '''
                             set -e
@@ -193,6 +197,35 @@ EOF
                         returnStdout: true
                     ).trim()
 
+                    // release.yaml says publishing is allowed only when the built commit is
+                    // the reviewed one, and until now nothing checked it: the pipeline never
+                    // opened the file. The sentence was true of nobody, and the review it
+                    // describes could be skipped by simply not doing it.
+                    //
+                    // This is also what lets the app version live in one place. The copy in
+                    // release.yaml was doing this job badly — a test made you edit a number
+                    // when you bumped the version, which forces an edit and not a review.
+                    // Comparing what is about to be published against what was reviewed is
+                    // the check that was meant, so the duplicate is no longer standing in
+                    // for it.
+                    //
+                    // Only when publishing: a PUSH=false build is how a Dockerfile change is
+                    // tested against any branch, and gating that would make the dry run
+                    // useless.
+                    if (params.PUSH) {
+                        sh """
+                            set -e
+                            reviewed="\$(python3 -c "import yaml; print(yaml.safe_load(open('clearsignage/release.yaml'))['clearsignage_revision'])")"
+                            if [ "\${reviewed}" != "${env.RESOLVED_REF}" ]; then
+                                echo "Refusing to publish: this build is ClearSignage ${env.RESOLVED_REF}," >&2
+                                echo "but clearsignage/release.yaml records \${reviewed} as the reviewed commit." >&2
+                                echo "Re-pin release.yaml to the commit you intend to ship, or build that" >&2
+                                echo "commit with CLEARSIGNAGE_REF_OVERRIDE." >&2
+                                exit 1
+                            fi
+                            echo "Publishing the reviewed commit \${reviewed}."
+                        """
+                    }
                 }
 
                 echo "Building ClearSignage ${env.RESOLVED_REF} as app version ${env.APP_VERSION}"

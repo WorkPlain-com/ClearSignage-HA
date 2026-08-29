@@ -1,7 +1,18 @@
 ---
 # Reviewed upstream source mapping for the Home Assistant release. Publishing is allowed
-# only when the requested ref resolves to this exact ClearSignage commit. Update both
-# source fields when reviewing a new upstream release.
-app_version: "0.1.935"
+# only when the requested ref resolves to this exact ClearSignage commit — enforced by
+# `jenkinsfile-ha` when PUSH is true, which refuses to publish a build that is not the
+# reviewed one. Update both fields when reviewing a new upstream release.
+#
+# The app version is deliberately NOT repeated here. It lives once, in `config.yaml`,
+# because the Supervisor parses that manifest and tracks an installed app by it — so it
+# has to be a literal there and everything else reads it from there. This file used to
+# carry a copy kept in step by a test, which forced an edit rather than a review; the
+# publish-time check above is the review that copy was standing in for.
+#
+# NOT YET RE-PINNED FOR THE VENUE ROLE (DP92). The revision below predates `clearvenue/`,
+# so a build from it fails `scripts/fetch-source.sh`'s layout check by design — loudly,
+# rather than shipping an image whose run script execs a module that is not in it. Re-pin
+# both fields to the prod commit carrying the venue role before publishing.
 clearsignage_ref: "7e742073902f100a975896a962838492e9f8a24c"
 clearsignage_revision: "7e742073902f100a975896a962838492e9f8a24c"
