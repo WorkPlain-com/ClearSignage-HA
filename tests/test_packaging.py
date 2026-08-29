@@ -73,10 +73,54 @@ def test_every_yaml_file_parses():
         assert isinstance(yaml.safe_load(path.read_text()), dict), path
 
 
-def test_release_metadata_pins_this_app_version_to_a_commit():
-    assert RELEASE["app_version"] == CONFIG["version"]
+def test_release_metadata_pins_a_reviewed_commit():
     assert re.fullmatch(r"[0-9a-f]{40}", RELEASE["clearsignage_revision"])
     assert RELEASE["clearsignage_ref"]
+
+
+def test_the_app_version_is_stated_in_exactly_one_place():
+    """One number to bump, and the manifest is where it has to be.
+
+    The Supervisor parses `config.yaml` and tracks an installed app by the version in it,
+    so that one cannot be generated or templated — which makes it the source and every
+    other copy a liability. `release.yaml` used to carry one, kept in step by a test that
+    forced an edit rather than a review; the publish-time revision check replaced it.
+
+    Asserted over every YAML file rather than the one that used to have it, because the
+    next copy will be added somewhere else.
+    """
+    assert CONFIG["version"], "the manifest states no version"
+
+    for path in sorted(REPO.rglob("*.yaml")):
+        if ".git" in path.parts or "src" in path.parts or path.name == "config.yaml":
+            continue
+        loaded = yaml.safe_load(path.read_text()) or {}
+        repeated = {
+            key: value
+            for key, value in loaded.items()
+            if isinstance(value, str) and value == CONFIG["version"]
+        }
+        assert not repeated, (
+            f"{path.relative_to(REPO)} repeats the app version in {sorted(repeated)}; "
+            f"read it from clearsignage/config.yaml instead"
+        )
+
+
+def test_the_pipeline_refuses_to_publish_a_commit_nobody_reviewed():
+    """release.yaml's own sentence, made true.
+
+    It has always said publishing is allowed only when the requested ref resolves to the
+    reviewed commit, and nothing checked it — the pipeline never opened the file. A claim
+    in a comment that no code enforces is worse than no claim, because the review it
+    describes can be skipped by simply not doing it.
+
+    Gated on PUSH, and that is asserted too: a `PUSH=false` build is how a Dockerfile
+    change is tested against any branch, so gating that would make the dry run useless.
+    """
+    assert "release.yaml" in PIPELINE, "the pipeline never reads the reviewed pin"
+    assert "clearsignage_revision" in PIPELINE
+    assert "if (params.PUSH) {" in PIPELINE, "the check must not run on a dry-run build"
+    assert "Refusing to publish" in PIPELINE
 
 
 def test_pipeline_defaults_to_prod_and_pins_the_resolved_revision():

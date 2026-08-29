@@ -23,7 +23,7 @@ scripts/
   fetch-source.sh            pin and fetch ClearSignage into the build context
   build.sh                   fetch + docker build, for one architecture
 tests/test_packaging.py      what this repo can be wrong about
-clearsignage/release.yaml    reviewed app-version to upstream-commit mapping
+clearsignage/release.yaml    the upstream commit this release was reviewed against
 ```
 
 ## Building
@@ -45,15 +45,18 @@ them into one multi-arch manifest with `imagetools create`, and pushes it to the
 
 1. Merge the intended changes in the upstream ClearSignage repository and run its full
    test suite.
-2. 2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and pass that SHA, or
+2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and pass that SHA, or
    the reviewed release tag recorded beside it, as `CLEARSIGNAGE_REF_OVERRIDE`).
-3. Increment `version` in `clearsignage/config.yaml` and update the matching
-   `app_version` in the release metadata in the same review.
-4. Run Jenkins with `PUSH=true`. It builds and publishes both `aarch64` and `amd64`; a
-   branch ref is deliberately accepted only by an opt-in `PUSH=false` development build.
+3. Increment `version` in `clearsignage/config.yaml`. That is the **only** place the app
+   version lives: the Supervisor parses this manifest and tracks an installed app by it,
+   so it has to be a literal there, and the pipeline and the image labels read it from
+   there. Nothing else keeps a copy to edit in step.
+4. Run Jenkins with `PUSH=true`. It builds and publishes both `aarch64` and `amd64`, and
+   refuses to publish at all unless the commit it built is the one `release.yaml` records
+   as reviewed — so step 2 cannot be skipped. A branch ref is still fine for an opt-in
+   `PUSH=false` development build, which skips that check.
 5. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
-   both platforms and the `org.opencontainers.image.revision` label. The pipeline refuses
-   to replace an existing version whose revision differs.
+   both platforms and the `org.opencontainers.image.revision` label.
 6. Only after that inspection, upgrade the Home Assistant installation to the new app
    version.
 
