@@ -4,6 +4,10 @@ Run one or more ClearSignage screens inside Home Assistant. Each screen is a com
 independent signage player — its own content library, its own playlists, its own PIN —
 and is managed on itself, the same way a Raspberry Pi appliance is.
 
+This machine is also your **venue**: the one place that holds a connection to something
+like your till, reads the prices from it, and sends them out to the screens that show
+them. Screens never hold that connection themselves — they receive prices, never access.
+
 ## Installing
 
 1. **Add the registry credentials.** This app is a prebuilt image in a private registry,
@@ -118,8 +122,24 @@ views:
 
 *Checked against Home Assistant 2026.7.*
 
+## Your till, and other live data
+
+Open **Till** from the Screens page to connect your point-of-sale account. You sign in to
+the provider once, in your own browser; what comes back is stored here and refreshed
+automatically, and your screens are sent the prices only.
+
+**Your Home Assistant backups will contain that connection.** A backup includes this app's
+data, and many people sync backups to cloud storage — so treat one the way you would treat
+the password to the account itself. If a backup is ever shared or exposed, disconnect the
+till on the Till page: that revokes what the backup contains.
+
+You can also add screens that are not run by this machine. **Other screens** on the Screens
+page finds ClearSignage screens elsewhere on your network and joins them to this venue, so
+they receive its prices too. Joining is always explicit — nothing is enrolled by being
+discovered — and letting one go afterwards affects only that screen.
+
 ## Your content
 
-Everything lives in the app's `/data` — one directory per screen. Removing a screen from
-the fleet page leaves its content on disk, so removing one by mistake is recoverable;
-uninstalling the app is not.
+Everything lives in the app's `/data` — one directory per screen, plus this venue's own
+connections. Removing a screen from the fleet page leaves its content on disk, so removing
+one by mistake is recoverable; uninstalling the app is not.

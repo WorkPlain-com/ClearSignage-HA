@@ -201,10 +201,29 @@ def test_every_option_is_explained_to_the_operator():
         assert entry.get("description"), key
 
 
-def test_the_run_script_execs_the_supervisor_rather_than_backgrounding_it():
-    """s6 supervises PID 1 of the service; a backgrounded process is unsupervised."""
+def test_the_run_script_execs_the_venue_rather_than_backgrounding_it():
+    """s6 supervises PID 1 of the service; a backgrounded process is unsupervised.
+
+    ``-m clearvenue``, not ``-m hosted`` (DP92): a venue is the supervisor *plus* the
+    surfaces that make it the building's source of truth — the till, enrolment, the
+    replication lane. Running the supervisor alone is what left an operator here with the
+    Screens page and nothing else, so the module named is the whole of that fix.
+    """
     run = (APP / "rootfs/etc/services.d/clearsignage/run").read_text()
-    assert re.search(r"^exec .*-m hosted$", run, re.M), run[-200:]
+    assert re.search(r"^exec .*-m clearvenue$", run, re.M), run[-200:]
+
+
+def test_the_run_script_says_which_platform_is_hosting_the_venue():
+    """Left unset, ``clearvenue.hosts`` resolves Ubuntu Core — the wrong answer here.
+
+    That default is deliberate upstream (it is the platform the venue snap ships on), and
+    it is exactly why this file has to state its own: an unstated venue on Home Assistant
+    would mount a sign-in of its own over an operator the Supervisor has already
+    authenticated, and try to bind a privileged port it does not own.
+    """
+    run = (APP / "rootfs/etc/services.d/clearsignage/run").read_text()
+    assert re.search(r"^CLEARVENUE_HOST=home-assistant$", run, re.M), run[:400]
+    assert "export CLEARVENUE_HOST" in run, "set but never exported reaches no child"
 
 
 def test_the_finish_script_brings_the_whole_app_down():
@@ -402,3 +421,35 @@ def test_the_operator_is_told_to_add_registry_credentials_first():
     registry = CONFIG["image"].split("/")[0]
     assert registry in docs
     assert docs.index(registry) < docs.index("Repositories")
+
+
+def test_the_image_contains_the_package_the_run_script_execs():
+    """The two files that must agree, and the way they can silently stop agreeing.
+
+    ``fetch-source.sh`` decides what goes into the image; ``run`` decides what is started
+    from it. Nothing else connects them, so a package dropped from the copy list — or a
+    module renamed upstream — produces an image that builds cleanly, passes every other
+    test here, and then exits with ``No module named clearvenue`` on somebody's Home
+    Assistant.
+
+    Asserted both ways round: the package is copied, *and* the fetch script checks it
+    arrived. The second is what turns an upstream rename into a failed build rather than
+    a published image.
+    """
+    fetch = (REPO / "scripts" / "fetch-source.sh").read_text(encoding="utf-8")
+    run = (APP / "rootfs/etc/services.d/clearsignage/run").read_text(encoding="utf-8")
+
+    execed = re.search(r"^exec .*-m (\w+)$", run, re.M)
+    assert execed, "the run script execs no module at all"
+    package = execed.group(1)
+
+    copied = re.search(r"^for path in ([^;]+); do$", fetch, re.M)
+    assert copied, "fetch-source.sh no longer states which paths it copies"
+    assert package in copied.group(1).split(), (
+        f"the run script starts {package!r}, which fetch-source.sh does not copy: "
+        f"the image would build without it"
+    )
+    assert f'"${{DEST}}/{package}/__main__.py"' in fetch, (
+        f"{package} is copied but never verified, so an upstream rename would publish "
+        f"an image that cannot start"
+    )

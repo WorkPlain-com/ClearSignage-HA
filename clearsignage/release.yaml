@@ -2,6 +2,11 @@
 # Reviewed upstream source mapping for the Home Assistant release. Publishing is allowed
 # only when the requested ref resolves to this exact ClearSignage commit. Update both
 # source fields when reviewing a new upstream release.
-app_version: "0.1.935"
+#
+# NOT YET RE-PINNED FOR THE VENUE ROLE (DP92). The revision below predates `clearvenue/`,
+# so a build from it fails `scripts/fetch-source.sh`'s layout check by design — loudly,
+# rather than shipping an image whose run script execs a module that is not in it. Re-pin
+# both fields to the prod commit carrying the venue role before publishing this version.
+app_version: "0.1.936"
 clearsignage_ref: "7e742073902f100a975896a962838492e9f8a24c"
 clearsignage_revision: "7e742073902f100a975896a962838492e9f8a24c"
