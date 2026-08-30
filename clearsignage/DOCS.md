@@ -7,6 +7,7 @@ and is managed on itself, the same way a Raspberry Pi appliance is.
 This machine is also your **venue**: the one place that holds a connection to something
 like your till, reads the prices from it, and sends them out to the screens that show
 them. Screens never hold that connection themselves — they receive prices, never access.
+It is also where this building's **occupancy** is counted and kept.
 
 ## Installing
 
@@ -137,6 +138,31 @@ You can also add screens that are not run by this machine. **Other screens** on 
 page finds ClearSignage screens elsewhere on your network and joins them to this venue, so
 they receive its prices too. Joining is always explicit — nothing is enrolled by being
 discovered — and letting one go afterwards affects only that screen.
+
+## Counting how busy a space is
+
+Open **Occupancy** from the Screens page. Add a space — a room you think of as one place —
+say how many it holds, and add a camera at each door people come in through. Adding a camera
+gives you a code to paste into it once; after that the camera counts on its own and this
+machine keeps the totals and the hour-by-hour history.
+
+**The camera sends numbers, never pictures.** No image is stored anywhere, there is no face
+recognition and nothing follows anybody between cameras. The only picture that ever leaves a
+camera is the single frame you drag the doorway line across while aiming it, and that is
+shown to you and then dropped.
+
+Two things worth knowing before you start:
+
+- **One camera watches one doorway.** Two cameras that can both see the same door will count
+  everybody through it twice, and nothing here can tell that apart from a genuinely busy pair
+  of doors.
+- **Counting drifts.** People walk through in pairs and deliveries block the view. A space
+  can start counting again each night, and you can always set the number to what you have
+  just counted by hand.
+
+Any screen this venue has joined can show it: add a **How busy it is** board and pick the
+space. Every number on that board is optional, so it can be one large figure in a window or
+the lot on a back-office screen.
 
 ## Your content
 

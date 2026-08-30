@@ -12,8 +12,9 @@ version: "0.1.936"
 slug: clearsignage
 description: >-
   Run one or more ClearSignage screens inside Home Assistant, and let this machine be your
-  venue's source of truth for live data like till prices. Each screen is a complete,
-  independent signage player with its own content library, managed on itself.
+  venue's source of truth for live data — till prices, and how busy your spaces are. Each
+  screen is a complete, independent signage player with its own content library, managed on
+  itself.
 url: https://github.com/WorkPlain-com/ClearSignage-HA
 # A prebuilt image, not a local build. The Supervisor can build an app on the user's own
 # machine, and for a public add-on that is friendlier — but this image is built from a
