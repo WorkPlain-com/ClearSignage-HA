@@ -21,6 +21,7 @@
 set -euo pipefail
 
 export CLEARVENUE_HOST
+export CLEARVENUE_BUILD
 export CLEARSIGNAGE_VHOST_PORT
 export CLEARSIGNAGE_HOST_IP
 export CLEARSIGNAGE_APP_DIR
@@ -29,6 +30,15 @@ export CLEARSIGNAGE_APP_DIR
 # authenticated the operator, so no second sign-in is mounted (DP87), and that the app is
 # served on two listeners rather than binding a privileged port itself.
 CLEARVENUE_HOST=home-assistant
+
+# Which build this is, for the venue's About page — the number an operator quotes when
+# they report something. The app knows its own version and the venue does not, so this is
+# the only place the two meet. Never fatal: a blank build simply leaves the row off that
+# page, which is better than an app that will not start because it could not name itself.
+CLEARVENUE_BUILD="$(bashio::addon.version 2>/dev/null || true)"
+if [ "${CLEARVENUE_BUILD}" = "null" ]; then
+    CLEARVENUE_BUILD=""
+fi
 
 CLEARSIGNAGE_VHOST_PORT="$(bashio::config 'vhost_port')"
 # The directory holding the `app` package, matching the appliance's SIGNAGE_APP_DIR.
