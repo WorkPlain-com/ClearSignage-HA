@@ -22,8 +22,12 @@ clearsignage/
 scripts/
   fetch-source.sh            pin and fetch ClearSignage into the build context
   build.sh                   fetch + docker build, for one architecture
+  next-image-version.py      choose YYYYMMDD.NN and stamp it into the manifest
+  check-publish-allowed.py   what may be published, and from where
+  prune-ghcr-releases.py     keep the current and previous releases, delete the rest
+  ghcr_api.py                the one way these two reach the GHCR package
 tests/test_packaging.py      what this repo can be wrong about
-clearsignage/release.yaml    the upstream commit this release was reviewed against
+clearsignage/release.yaml    the one commit publishable from somewhere other than prod
 ```
 
 ## Building
@@ -43,22 +47,43 @@ them into one multi-arch manifest with `imagetools create`, and pushes it to the
 
 ## Releasing
 
-1. Merge the intended changes in the upstream ClearSignage repository and run its full
-   test suite.
-2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and pass that SHA, or
-   the reviewed release tag recorded beside it, as `CLEARSIGNAGE_REF_OVERRIDE`).
-3. Increment `version` in `clearsignage/config.yaml`. That is the **only** place the app
-   version lives: the Supervisor parses this manifest and tracks an installed app by it,
-   so it has to be a literal there, and the pipeline and the image labels read it from
-   there. Nothing else keeps a copy to edit in step.
-4. Run Jenkins with `PUSH=true`. It builds and publishes both `aarch64` and `amd64`, and
-   refuses to publish at all unless the commit it built is the one `release.yaml` records
-   as reviewed — so step 2 cannot be skipped. A branch ref is still fine for an opt-in
-   `PUSH=false` development build, which skips that check.
-5. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
-   both platforms and the `org.opencontainers.image.revision` label.
-6. Only after that inspection, upgrade the Home Assistant installation to the new app
+**Run the Jenkins job with `PUSH=true`.** That is the whole of it — nothing in this
+repository is edited by hand to cut a release.
+
+Two things make that true. The version is chosen by the pipeline, and the branch is
+already released code:
+
+- **The version** is `YYYYMMDD.NN` from the build's UTC date — the same scheme
+  ClearSignage releases use, chosen the same way: the counter comes from the tags already
+  in the GHCR package, not from a number in this repo, so it cannot collide with a version
+  somebody is already running. `scripts/next-image-version.py` chooses it, stamps it into
+  `clearsignage/config.yaml`, and the pipeline commits that line back to `main` after the
+  push. Home Assistant reads the version from the manifest **in this repository**, so
+  recording it is part of publishing: until it is committed, the Supervisor goes on
+  offering the version the file still names.
+- **The branch** defaults to `prod`, which is ClearSignage's released branch — a commit
+  only reaches it through that repository's own release gate — so building prod ships code
+  that has already been signed off, whatever prod is on the day.
+
+Then, before anyone upgrades:
+
+1. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
+   both platforms and the `org.opencontainers.image.revision` label — that label is the
+   exact upstream commit the image was built from.
+2. Only after that inspection, upgrade the Home Assistant installation to the new app
    version.
+
+If the build publishes the image but cannot push the version commit — most likely a branch
+protection rule on `main` that the Jenkins credential cannot satisfy — it fails loudly and
+says so. No rebuild is needed in that case: set `version` in `clearsignage/config.yaml` to
+the version it published and commit that.
+
+**Publishing something other than `prod`** — a `beta` or `main` build, or an exact commit
+passed as `CLEARSIGNAGE_REF_OVERRIDE` — is the case where nothing has vouched for the
+code, and it is refused unless that commit is written into `clearsignage/release.yaml`
+first (**both** fields; they name one release). The rule is
+`scripts/check-publish-allowed.py`, and `tests/test_packaging.py` drives it. A `PUSH=false`
+build of any branch is never gated: it publishes nothing.
 
 Locally, one architecture at a time:
 
@@ -75,9 +100,10 @@ runs the bytes that were tested rather than whatever resolves on the day. The co
 each install needs read credentials for the registry — Home Assistant stores those itself,
 per registry hostname, so they never appear in this repository.
 
-`fetch-source.sh` copies only `hosted/`, `device/` and `shared/` and drops every `tests/`
-directory. The appliance's image builder, its systemd units, the Android port and the
-cloud Worker are all absent, because a hosted instance is none of those things. The
+`fetch-source.sh` copies only `hosted/`, `device/`, `shared/` and `clearvenue/` — the
+venue role this app starts (DP92) — and drops every `tests/` directory. The appliance's
+image builder, its systemd units, the Android port and the cloud Worker are all absent,
+because a hosted instance is none of those things. The
 resolved commit is written to `clearsignage/src/CLEARSIGNAGE_REF` and baked into the
 image as an OCI label, so a running app can say exactly what it is. The pipeline deletes
 that tree afterwards rather than leaving private source on a shared agent.

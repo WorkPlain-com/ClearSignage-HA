@@ -5,9 +5,15 @@
 # comments say which one — because the interesting half of this file is what it does
 # *not* ask for.
 name: ClearSignage
-# Bumped so the Supervisor actually fetches a new image. It tracks the installed app by
-# this version, so republishing the same tag leaves an existing install on the bytes it
-# already has — a rebuild alone is not something Home Assistant goes looking for.
+# Written by the pipeline, not by hand: YYYYMMDD.NN from the build's UTC date and the tags
+# already in the GHCR package, the same scheme ClearSignage releases use. It is committed
+# back here after a successful publish, so this line is the record of what was published —
+# and it has to be a literal, because the Supervisor parses this manifest, tracks an
+# installed app by this version and pulls image:<version>.
+#
+# Editing it by hand only makes sense to repair a release the pipeline published but could
+# not record; setting it to a version that was never published leaves every install failing
+# at the pull.
 version: "0.1.936"
 slug: clearsignage
 description: >-

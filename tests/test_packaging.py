@@ -13,6 +13,7 @@ skip that let eight designer tests sit red on ClearSignage's main for a year.
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import re
 from pathlib import Path
@@ -28,13 +29,26 @@ RELEASE = yaml.safe_load((APP / "release.yaml").read_text())
 PIPELINE = (REPO / "jenkinsfile-ha").read_text()
 
 
-def _load_pruner():
-    path = REPO / "scripts" / "prune-ghcr-releases.py"
-    spec = importlib.util.spec_from_file_location("prune_ghcr_releases", path)
+def _load_script(filename: str, module_name: str):
+    """Import a `scripts/` file that is a command, not an installed module."""
+    path = REPO / "scripts" / filename
+    spec = importlib.util.spec_from_file_location(module_name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_pruner():
+    return _load_script("prune-ghcr-releases.py", "prune_ghcr_releases")
+
+
+def _load_publish_gate():
+    return _load_script("check-publish-allowed.py", "check_publish_allowed")
+
+
+def _load_version_chooser():
+    return _load_script("next-image-version.py", "next_image_version")
 
 
 def _dockerfile_directives() -> str:
@@ -78,6 +92,135 @@ def test_release_metadata_pins_a_reviewed_commit():
     assert RELEASE["clearsignage_ref"]
 
 
+def test_the_version_is_chosen_from_what_is_already_published():
+    """YYYYMMDD.NN, counted from the registry rather than from a number in the repo.
+
+    A counter kept in a file is wrong the moment two builds run from one commit, or a
+    publish fails after its version was written down. The tags cannot disagree with
+    themselves, which is why ClearSignage's own releases count from the objects in R2 and
+    this counts from the objects in GHCR.
+    """
+    chooser = _load_version_chooser()
+    day = dt.date(2026, 8, 31)
+
+    assert chooser.next_version([], day) == "20260831.01"
+    assert chooser.next_version(["20260831.01", "latest"], day) == "20260831.02"
+    # The per-architecture tags published beside the manifest are the same release.
+    arch_tags = ["20260831.01-aarch64", "20260831.01-amd64"]
+    assert chooser.next_version(arch_tags, day) == "20260831.02"
+    # Yesterday's releases, and the versions from before this scheme, are not this day's.
+    assert chooser.next_version(["20260830.09", "0.1.936", "20260831"], day) == "20260831.01"
+    # Counting reads the greatest, not the count: a pruned .01 must not be handed out twice.
+    assert chooser.next_version(["20260831.04"], day) == "20260831.05"
+
+
+def test_a_tag_for_today_that_makes_no_sense_stops_the_build():
+    """Skipping it is how a version gets handed out twice, and the second one overwrites
+    an image somebody is running. ClearSignage's own selector refuses for the same reason."""
+    chooser = _load_version_chooser()
+    with pytest.raises(ValueError):
+        chooser.next_version(["20260831.1"], dt.date(2026, 8, 31))
+
+
+def test_a_day_that_runs_out_of_counters_stops_rather_than_wrapping():
+    """Two digits is the format; .100 would sort below .99 and collide with a published
+    tag, so the ninety-ninth build of one day is where a person has to be told."""
+    chooser = _load_version_chooser()
+    with pytest.raises(OverflowError):
+        chooser.next_version(["20260831.99"], dt.date(2026, 8, 31))
+
+
+def test_stamping_the_manifest_touches_only_the_version():
+    """The manifest is mostly comments explaining the decisions in it, and a rewrite that
+    dropped them would be a silent loss no test would otherwise notice."""
+    chooser = _load_version_chooser()
+    original = (APP / "config.yaml").read_text(encoding="utf-8")
+    stamped = chooser.stamp_version(original, "20260831.07")
+
+    assert yaml.safe_load(stamped)["version"] == "20260831.07"
+    assert stamped.count("\n") == original.count("\n")
+    for line in original.splitlines():
+        if not line.startswith("version:"):
+            assert line in stamped, line
+
+    # Stamping the same version again is the no-op the pipeline relies on to tell
+    # "already recorded" from "needs a commit".
+    assert chooser.stamp_version(stamped, "20260831.07") == stamped
+
+
+def test_a_manifest_with_no_version_line_is_an_error_not_a_silent_no_op():
+    chooser = _load_version_chooser()
+    with pytest.raises(ValueError):
+        chooser.stamp_version("---\nname: ClearSignage\n", "20260831.01")
+
+
+def test_the_manifest_version_is_a_tag_the_registry_and_the_pruner_both_accept():
+    """One string has to be three things: a Docker tag, what the Supervisor tracks, and
+    something `prune-ghcr-releases.py` can order. A hand-written "1.0-beta" would publish
+    and then quietly stop being prunable."""
+    pruner = _load_pruner()
+    assert pruner.release_from_tags([CONFIG["version"]]) == CONFIG["version"]
+
+    # And the scheme is an upgrade from the versions that came before it, or Home
+    # Assistant would not offer the first dated release to anyone already installed.
+    assert pruner.version_key("20260831.01") > pruner.version_key(CONFIG["version"])
+
+
+def test_the_pipeline_chooses_the_version_and_records_what_it_published():
+    """Both halves, because either one alone is broken.
+
+    Choosing without recording publishes an image no install is offered — Home Assistant
+    reads the version from config.yaml in this repository, so an uncommitted version
+    reaches nobody. Recording without publishing first advertises a tag that is not in the
+    registry yet, and an operator upgrading in that window gets a pull failure.
+    """
+    assert "./scripts/next-image-version.py" in PIPELINE
+    assert '--config clearsignage/config.yaml' in PIPELINE
+    assert 'GHCR_TOKEN="${GHCR_PSW}"' in PIPELINE
+
+    record = PIPELINE.index("stage('Record the published version')")
+    publish = PIPELINE.index("stage('Build and publish')")
+    assert publish < record, "the version is recorded before the image it names exists"
+
+    recording = PIPELINE[record:]
+    assert "expression { params.PUSH }" in recording, "a dry run must not write to main"
+    assert '--set "${APP_VERSION}"' in recording, "the recorded version must be the built one"
+    assert "HEAD:main" in recording
+    assert "THE IMAGE IS PUBLISHED but its version was not recorded" in recording, (
+        "a failure here leaves a published image nobody is offered; it has to say so"
+    )
+
+
+def test_the_github_token_never_reaches_a_url_or_an_argument():
+    """The fetch stage went to the trouble of a temporary GIT_ASKPASS for this reason, and
+    the push added later is the obvious place for a PAT to end up in a remote URL — where
+    it lands in `git config`, in `ps` output, and in any command echo."""
+    assert "${GIT_PASSWORD}@github.com" not in PIPELINE
+    assert "${GITHUB_TOKEN}@github.com" not in PIPELINE
+    assert PIPELINE.count("GIT_ASKPASS") >= 2, "the push step authenticates some other way"
+
+
+def test_the_two_pinned_fields_name_the_same_release():
+    """A half-done pin is how this file goes wrong, and it fails late.
+
+    `clearsignage_revision` is what the publish check compares the built commit against;
+    `clearsignage_ref` is what a person passes as `CLEARSIGNAGE_REF_OVERRIDE` to build
+    that commit. Editing one and leaving the other reads as pinned and publishes nothing:
+    the build clones one commit and the check refuses it against the other, on the agent,
+    after a full private checkout — instead of here, before anything is fetched.
+
+    Only asserted when the ref is itself a SHA, because a reviewed release tag is a
+    legitimate value there and cannot be compared to one.
+    """
+    ref = RELEASE["clearsignage_ref"]
+    if not re.fullmatch(r"[0-9a-f]{40}", ref):
+        return
+    assert ref == RELEASE["clearsignage_revision"], (
+        "release.yaml names two different commits; the pipeline would build "
+        f"{ref} and refuse to publish it against {RELEASE['clearsignage_revision']}"
+    )
+
+
 def test_the_app_version_is_stated_in_exactly_one_place():
     """One number to bump, and the manifest is where it has to be.
 
@@ -106,21 +249,116 @@ def test_the_app_version_is_stated_in_exactly_one_place():
         )
 
 
-def test_the_pipeline_refuses_to_publish_a_commit_nobody_reviewed():
-    """release.yaml's own sentence, made true.
+def test_a_release_from_prod_is_a_version_bump_and_nothing_else():
+    """The whole point of the rule: shipping released code costs one edit.
 
-    It has always said publishing is allowed only when the requested ref resolves to the
-    reviewed commit, and nothing checked it — the pipeline never opened the file. A claim
-    in a comment that no code enforces is worse than no claim, because the review it
-    describes can be skipped by simply not doing it.
-
-    Gated on PUSH, and that is asserted too: a `PUSH=false` build is how a Dockerfile
-    change is tested against any branch, so gating that would make the dry run useless.
+    `prod` is ClearSignage's released branch — a commit only reaches it through that
+    repository's own release gate — so there is nothing for this repo to re-approve, and
+    asking anyway made every release two edits and every forgotten second edit a failed
+    build. Whatever prod is on the day is what publishing prod means.
     """
-    assert "release.yaml" in PIPELINE, "the pipeline never reads the reviewed pin"
-    assert "clearsignage_revision" in PIPELINE
-    assert "if (params.PUSH) {" in PIPELINE, "the check must not run on a dry-run build"
-    assert "Refusing to publish" in PIPELINE
+    gate = _load_publish_gate()
+    assert (
+        gate.publish_refusal(
+            push=True,
+            branch="prod",
+            override="",
+            built_revision="a" * 40,
+            pinned_revision="b" * 40,
+        )
+        is None
+    ), "a prod build was refused over a pin it does not need"
+
+
+def test_publishing_anything_but_prod_ships_only_the_commit_written_down():
+    """beta and main move on their own, and a typed commit is whatever was typed.
+
+    Those are the cases where nothing has vouched for the code, so release.yaml is what
+    says which commit is meant. The refusal names the commit built and the commit
+    recorded, because a message that says only "refused" sends you reading the pipeline.
+    """
+    gate = _load_publish_gate()
+    built, pinned = "a" * 40, "b" * 40
+
+    for branch in ("beta", "main"):
+        refusal = gate.publish_refusal(
+            push=True,
+            branch=branch,
+            override="",
+            built_revision=built,
+            pinned_revision=pinned,
+        )
+        assert refusal, f"{branch} published without the commit being recorded"
+        assert built in refusal and pinned in refusal, refusal
+
+    # An exact commit asked for by hand is the same case, even off prod's own branch.
+    assert gate.publish_refusal(
+        push=True,
+        branch="prod",
+        override=built,
+        built_revision=built,
+        pinned_revision=pinned,
+    ), "an override published without the commit being recorded"
+
+    # ...and recording it is what allows it.
+    assert (
+        gate.publish_refusal(
+            push=True,
+            branch="main",
+            override="",
+            built_revision=built,
+            pinned_revision=built,
+        )
+        is None
+    )
+
+
+def test_a_build_that_recorded_no_commit_publishes_nothing():
+    """Found by fat-fingering the check's own shell exercise, which is the point.
+
+    The revision is read from the fetched checkout and stamped on the image as
+    `org.opencontainers.image.revision`. Empty means the fetch did not leave what it was
+    supposed to — and a prod build would otherwise sail past, publishing an image that
+    cannot say which source it was built from.
+    """
+    gate = _load_publish_gate()
+    for branch in ("prod", "main"):
+        assert gate.publish_refusal(
+            push=True,
+            branch=branch,
+            override="",
+            built_revision="  ",
+            pinned_revision="b" * 40,
+        ), f"a {branch} build published without recording a commit"
+
+
+def test_a_dry_run_is_never_gated():
+    """`PUSH=false` is how a Dockerfile change is tried against any branch; it publishes
+    nothing, so there is nothing to refuse."""
+    gate = _load_publish_gate()
+    assert (
+        gate.publish_refusal(
+            push=False,
+            branch="main",
+            override="",
+            built_revision="a" * 40,
+            pinned_revision="b" * 40,
+        )
+        is None
+    )
+
+
+def test_the_pipeline_actually_runs_the_publish_check():
+    """A rule nothing calls is a rule nobody follows — which is how the first version of
+    this check sat in a comment for months, describing a review the pipeline never did."""
+    assert "./scripts/check-publish-allowed.py" in PIPELINE
+    assert "--built-revision" in PIPELINE
+    assert "--release-file clearsignage/release.yaml" in PIPELINE
+    # The parameters the rule decides on have to reach it, including the fallback for a
+    # job configuration too old to have them.
+    assert "PUBLISH_BRANCH=${params.CLEARSIGNAGE_REF ?: 'prod'}" in PIPELINE
+    assert "PUBLISH_OVERRIDE=${params.CLEARSIGNAGE_REF_OVERRIDE ?: ''}" in PIPELINE
+    assert "PUBLISH_PUSH=${params.PUSH}" in PIPELINE
 
 
 def test_pipeline_defaults_to_prod_and_pins_the_resolved_revision():

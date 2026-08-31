@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
 import urllib.error
-import urllib.parse
-import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import ghcr_api  # noqa: E402  (the module sits beside this command, not on the path)
 
 
 RELEASE_TAG = re.compile(r"^(\d+(?:\.\d+)+)(?:-(aarch64|amd64))?$")
@@ -60,15 +62,6 @@ def versions_to_delete(versions: list[dict[str, object]], current: str) -> list[
     return selected
 
 
-def request(url: str, token: str, method: str = "GET") -> urllib.response.addinfourl:
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    return urllib.request.urlopen(urllib.request.Request(url, headers=headers, method=method))
-
-
 def main() -> int:
     if len(sys.argv) != 4:
         print(f"usage: {sys.argv[0]} OWNER PACKAGE CURRENT_VERSION", file=sys.stderr)
@@ -80,22 +73,12 @@ def main() -> int:
         print("GHCR_TOKEN is required", file=sys.stderr)
         return 2
 
-    base = "https://api.github.com/orgs/{}/packages/container/{}/versions".format(
-        urllib.parse.quote(owner, safe=""), urllib.parse.quote(package, safe="")
-    )
-    versions: list[dict[str, object]] = []
-    page = 1
-    while True:
-        with request(f"{base}?per_page=100&page={page}", token) as response:
-            batch = json.load(response)
-        versions.extend(batch)
-        if len(batch) < 100:
-            break
-        page += 1
+    base = ghcr_api.versions_url(owner, package)
+    versions = ghcr_api.all_versions(owner, package, token)
 
     doomed = versions_to_delete(versions, current)
     for version_id in doomed:
-        with request(f"{base}/{version_id}", token, method="DELETE"):
+        with ghcr_api.request(f"{base}/{version_id}", token, method="DELETE"):
             pass
         print(f"Deleted GHCR package version {version_id}")
     print(f"Pruned {len(doomed)} package versions; retained release {current} and its predecessor")
