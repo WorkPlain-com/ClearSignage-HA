@@ -45,8 +45,10 @@ them into one multi-arch manifest with `imagetools create`, and pushes it to the
 
 1. Merge the intended changes in the upstream ClearSignage repository and run its full
    test suite.
-2. Pin the resulting full commit SHA in `clearsignage/release.yaml` (and pass that SHA, or
-   the reviewed release tag recorded beside it, as `CLEARSIGNAGE_REF_OVERRIDE`).
+2. Pin the resulting full commit SHA in `clearsignage/release.yaml` — **both** fields, which
+   name one release (and pass that SHA, or the reviewed release tag recorded beside it, as
+   `CLEARSIGNAGE_REF_OVERRIDE`). Building `prod` without re-pinning is refused at step 4,
+   because prod moves and the pin is the record that somebody looked at where it moved to.
 3. Increment `version` in `clearsignage/config.yaml`. That is the **only** place the app
    version lives: the Supervisor parses this manifest and tracks an installed app by it,
    so it has to be a literal there, and the pipeline and the image labels read it from
@@ -75,9 +77,10 @@ runs the bytes that were tested rather than whatever resolves on the day. The co
 each install needs read credentials for the registry — Home Assistant stores those itself,
 per registry hostname, so they never appear in this repository.
 
-`fetch-source.sh` copies only `hosted/`, `device/` and `shared/` and drops every `tests/`
-directory. The appliance's image builder, its systemd units, the Android port and the
-cloud Worker are all absent, because a hosted instance is none of those things. The
+`fetch-source.sh` copies only `hosted/`, `device/`, `shared/` and `clearvenue/` — the
+venue role this app starts (DP92) — and drops every `tests/` directory. The appliance's
+image builder, its systemd units, the Android port and the cloud Worker are all absent,
+because a hosted instance is none of those things. The
 resolved commit is written to `clearsignage/src/CLEARSIGNAGE_REF` and baked into the
 image as an OCI label, so a running app can say exactly what it is. The pipeline deletes
 that tree afterwards rather than leaving private source on a shared agent.

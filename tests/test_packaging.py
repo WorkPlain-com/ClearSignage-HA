@@ -78,6 +78,28 @@ def test_release_metadata_pins_a_reviewed_commit():
     assert RELEASE["clearsignage_ref"]
 
 
+def test_the_two_pinned_fields_name_the_same_release():
+    """A half-done re-pin is how this file goes wrong, and it fails late.
+
+    `clearsignage_revision` is what the pipeline compares the built commit against;
+    `clearsignage_ref` is what a person passes as `CLEARSIGNAGE_REF_OVERRIDE` to build
+    that commit. Editing one and leaving the other reads as re-pinned and publishes
+    nothing: the build clones one commit and the gate refuses it against the other, on
+    the agent, after a full private checkout — instead of here, before anything is
+    fetched.
+
+    Only asserted when the ref is itself a SHA, because a reviewed release tag is a
+    legitimate value there and cannot be compared to one.
+    """
+    ref = RELEASE["clearsignage_ref"]
+    if not re.fullmatch(r"[0-9a-f]{40}", ref):
+        return
+    assert ref == RELEASE["clearsignage_revision"], (
+        "release.yaml names two different commits; the pipeline would build "
+        f"{ref} and refuse to publish it against {RELEASE['clearsignage_revision']}"
+    )
+
+
 def test_the_app_version_is_stated_in_exactly_one_place():
     """One number to bump, and the manifest is where it has to be.
 

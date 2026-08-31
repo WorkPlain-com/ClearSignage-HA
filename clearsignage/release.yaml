@@ -2,7 +2,8 @@
 # Reviewed upstream source mapping for the Home Assistant release. Publishing is allowed
 # only when the requested ref resolves to this exact ClearSignage commit — enforced by
 # `jenkinsfile-ha` when PUSH is true, which refuses to publish a build that is not the
-# reviewed one. Update both fields when reviewing a new upstream release.
+# reviewed one. Update both fields when reviewing a new upstream release; they name one
+# release, and a test here fails if only one of them is edited.
 #
 # The app version is deliberately NOT repeated here. It lives once, in `config.yaml`,
 # because the Supervisor parses that manifest and tracks an installed app by it — so it
@@ -10,9 +11,12 @@
 # carry a copy kept in step by a test, which forced an edit rather than a review; the
 # publish-time check above is the review that copy was standing in for.
 #
-# NOT YET RE-PINNED FOR THE VENUE ROLE (DP92). The revision below predates `clearvenue/`,
-# so a build from it fails `scripts/fetch-source.sh`'s layout check by design — loudly,
-# rather than shipping an image whose run script execs a module that is not in it. Re-pin
-# both fields to the prod commit carrying the venue role before publishing.
-clearsignage_ref: "7e742073902f100a975896a962838492e9f8a24c"
-clearsignage_revision: "7e742073902f100a975896a962838492e9f8a24c"
+# Re-pinned for the venue role (DP92). The commit below is `prod`, and it carries what
+# this add-on starts: `clearvenue/` with a `hosts/` registry that answers to
+# `home-assistant` — the value `rootfs/etc/services.d/clearsignage/run` exports — plus the
+# `hosted/`, `device/` and `shared/` trees `scripts/fetch-source.sh` copies beside it. The
+# revision it replaces predates `clearvenue/` and is no longer reachable from any upstream
+# branch, so every PUSH build was correctly refusing to publish rather than shipping an
+# image whose run script execs a module that is not in it.
+clearsignage_ref: "cb7277dde56fe17e98406fc464c477c601922f4a"
+clearsignage_revision: "cb7277dde56fe17e98406fc464c477c601922f4a"
