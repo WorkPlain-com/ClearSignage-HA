@@ -197,34 +197,39 @@ EOF
                         returnStdout: true
                     ).trim()
 
-                    // release.yaml says publishing is allowed only when the built commit is
-                    // the reviewed one, and until now nothing checked it: the pipeline never
-                    // opened the file. The sentence was true of nobody, and the review it
-                    // describes could be skipped by simply not doing it.
+                    // What a release costs, and where the line is.
                     //
-                    // This is also what lets the app version live in one place. The copy in
-                    // release.yaml was doing this job badly — a test made you edit a number
-                    // when you bumped the version, which forces an edit and not a review.
-                    // Comparing what is about to be published against what was reviewed is
-                    // the check that was meant, so the duplicate is no longer standing in
-                    // for it.
+                    // Building `prod` publishes what prod is at the time, with nothing to
+                    // re-pin first: prod is ClearSignage's *released* branch, and a commit
+                    // only reaches it through that repository's own release gate. So a
+                    // release here is one edit — bump `version` in config.yaml — and this
+                    // run. Asking for a second edit that only ever restates "yes, prod" is
+                    // ceremony, and ceremony gets worked around rather than read.
                     //
-                    // Only when publishing: a PUSH=false build is how a Dockerfile change is
-                    // tested against any branch, and gating that would make the dry run
-                    // useless.
-                    if (params.PUSH) {
-                        sh """
-                            set -e
-                            reviewed="\$(python3 -c "import yaml; print(yaml.safe_load(open('clearsignage/release.yaml'))['clearsignage_revision'])")"
-                            if [ "\${reviewed}" != "${env.RESOLVED_REF}" ]; then
-                                echo "Refusing to publish: this build is ClearSignage ${env.RESOLVED_REF}," >&2
-                                echo "but clearsignage/release.yaml records \${reviewed} as the reviewed commit." >&2
-                                echo "Re-pin release.yaml to the commit you intend to ship, or build that" >&2
-                                echo "commit with CLEARSIGNAGE_REF_OVERRIDE." >&2
-                                exit 1
-                            fi
-                            echo "Publishing the reviewed commit \${reviewed}."
-                        """
+                    // Publishing `beta`, `main` or a hand-typed commit is the case where
+                    // nothing has vouched for the code yet, and that still may only ship
+                    // the commit clearsignage/release.yaml records.
+                    //
+                    // The rule lives in a script because a Jenkinsfile cannot be tested and
+                    // that script can — the same reason prune-ghcr-releases.py holds the
+                    // retention rule. Nothing is gated when PUSH is off: that build
+                    // publishes nothing, and it is how a Dockerfile change is tried out
+                    // against any branch.
+                    withEnv([
+                        "PUBLISH_PUSH=${params.PUSH}",
+                        "PUBLISH_BRANCH=${params.CLEARSIGNAGE_REF ?: 'prod'}",
+                        "PUBLISH_OVERRIDE=${params.CLEARSIGNAGE_REF_OVERRIDE ?: ''}"
+                    ]) {
+                        sh '''#!/usr/bin/env bash
+                            set -euo pipefail
+
+                            ./scripts/check-publish-allowed.py \
+                                --push "${PUBLISH_PUSH}" \
+                                --branch "${PUBLISH_BRANCH}" \
+                                --override "${PUBLISH_OVERRIDE}" \
+                                --built-revision "${RESOLVED_REF}" \
+                                --release-file clearsignage/release.yaml
+                        '''
                     }
                 }
 

@@ -22,8 +22,9 @@ clearsignage/
 scripts/
   fetch-source.sh            pin and fetch ClearSignage into the build context
   build.sh                   fetch + docker build, for one architecture
+  check-publish-allowed.py   what may be published, and from where
 tests/test_packaging.py      what this repo can be wrong about
-clearsignage/release.yaml    the upstream commit this release was reviewed against
+clearsignage/release.yaml    the one commit publishable from somewhere other than prod
 ```
 
 ## Building
@@ -43,24 +44,33 @@ them into one multi-arch manifest with `imagetools create`, and pushes it to the
 
 ## Releasing
 
-1. Merge the intended changes in the upstream ClearSignage repository and run its full
-   test suite.
-2. Pin the resulting full commit SHA in `clearsignage/release.yaml` — **both** fields, which
-   name one release (and pass that SHA, or the reviewed release tag recorded beside it, as
-   `CLEARSIGNAGE_REF_OVERRIDE`). Building `prod` without re-pinning is refused at step 4,
-   because prod moves and the pin is the record that somebody looked at where it moved to.
-3. Increment `version` in `clearsignage/config.yaml`. That is the **only** place the app
+Releasing what is on `prod` is two steps:
+
+1. Increment `version` in `clearsignage/config.yaml`. That is the **only** place the app
    version lives: the Supervisor parses this manifest and tracks an installed app by it,
    so it has to be a literal there, and the pipeline and the image labels read it from
    there. Nothing else keeps a copy to edit in step.
-4. Run Jenkins with `PUSH=true`. It builds and publishes both `aarch64` and `amd64`, and
-   refuses to publish at all unless the commit it built is the one `release.yaml` records
-   as reviewed — so step 2 cannot be skipped. A branch ref is still fine for an opt-in
-   `PUSH=false` development build, which skips that check.
-5. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
-   both platforms and the `org.opencontainers.image.revision` label.
-6. Only after that inspection, upgrade the Home Assistant installation to the new app
+2. Run Jenkins with `PUSH=true` and `CLEARSIGNAGE_REF=prod` (the default). It builds and
+   publishes both `aarch64` and `amd64` as one manifest.
+
+Nothing has to be pinned or re-approved here for that, because `prod` is ClearSignage's
+released branch: a commit only reaches it through that repository's own release gate, so
+building prod ships code that has already been signed off — whatever prod is on the day.
+
+Then, before anyone upgrades:
+
+3. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
+   both platforms and the `org.opencontainers.image.revision` label — that label is the
+   exact upstream commit the image was built from.
+4. Only after that inspection, upgrade the Home Assistant installation to the new app
    version.
+
+**Publishing something other than `prod`** — a `beta` or `main` build, or an exact commit
+passed as `CLEARSIGNAGE_REF_OVERRIDE` — is the case where nothing has vouched for the
+code, and it is refused unless that commit is written into `clearsignage/release.yaml`
+first (**both** fields; they name one release). The rule is
+`scripts/check-publish-allowed.py`, and `tests/test_packaging.py` drives it. A `PUSH=false`
+build of any branch is never gated: it publishes nothing.
 
 Locally, one architecture at a time:
 

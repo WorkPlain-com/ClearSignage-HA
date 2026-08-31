@@ -28,13 +28,22 @@ RELEASE = yaml.safe_load((APP / "release.yaml").read_text())
 PIPELINE = (REPO / "jenkinsfile-ha").read_text()
 
 
-def _load_pruner():
-    path = REPO / "scripts" / "prune-ghcr-releases.py"
-    spec = importlib.util.spec_from_file_location("prune_ghcr_releases", path)
+def _load_script(filename: str, module_name: str):
+    """Import a `scripts/` file that is a command, not an installed module."""
+    path = REPO / "scripts" / filename
+    spec = importlib.util.spec_from_file_location(module_name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_pruner():
+    return _load_script("prune-ghcr-releases.py", "prune_ghcr_releases")
+
+
+def _load_publish_gate():
+    return _load_script("check-publish-allowed.py", "check_publish_allowed")
 
 
 def _dockerfile_directives() -> str:
@@ -79,14 +88,13 @@ def test_release_metadata_pins_a_reviewed_commit():
 
 
 def test_the_two_pinned_fields_name_the_same_release():
-    """A half-done re-pin is how this file goes wrong, and it fails late.
+    """A half-done pin is how this file goes wrong, and it fails late.
 
-    `clearsignage_revision` is what the pipeline compares the built commit against;
+    `clearsignage_revision` is what the publish check compares the built commit against;
     `clearsignage_ref` is what a person passes as `CLEARSIGNAGE_REF_OVERRIDE` to build
-    that commit. Editing one and leaving the other reads as re-pinned and publishes
-    nothing: the build clones one commit and the gate refuses it against the other, on
-    the agent, after a full private checkout — instead of here, before anything is
-    fetched.
+    that commit. Editing one and leaving the other reads as pinned and publishes nothing:
+    the build clones one commit and the check refuses it against the other, on the agent,
+    after a full private checkout — instead of here, before anything is fetched.
 
     Only asserted when the ref is itself a SHA, because a reviewed release tag is a
     legitimate value there and cannot be compared to one.
@@ -128,21 +136,116 @@ def test_the_app_version_is_stated_in_exactly_one_place():
         )
 
 
-def test_the_pipeline_refuses_to_publish_a_commit_nobody_reviewed():
-    """release.yaml's own sentence, made true.
+def test_a_release_from_prod_is_a_version_bump_and_nothing_else():
+    """The whole point of the rule: shipping released code costs one edit.
 
-    It has always said publishing is allowed only when the requested ref resolves to the
-    reviewed commit, and nothing checked it — the pipeline never opened the file. A claim
-    in a comment that no code enforces is worse than no claim, because the review it
-    describes can be skipped by simply not doing it.
-
-    Gated on PUSH, and that is asserted too: a `PUSH=false` build is how a Dockerfile
-    change is tested against any branch, so gating that would make the dry run useless.
+    `prod` is ClearSignage's released branch — a commit only reaches it through that
+    repository's own release gate — so there is nothing for this repo to re-approve, and
+    asking anyway made every release two edits and every forgotten second edit a failed
+    build. Whatever prod is on the day is what publishing prod means.
     """
-    assert "release.yaml" in PIPELINE, "the pipeline never reads the reviewed pin"
-    assert "clearsignage_revision" in PIPELINE
-    assert "if (params.PUSH) {" in PIPELINE, "the check must not run on a dry-run build"
-    assert "Refusing to publish" in PIPELINE
+    gate = _load_publish_gate()
+    assert (
+        gate.publish_refusal(
+            push=True,
+            branch="prod",
+            override="",
+            built_revision="a" * 40,
+            pinned_revision="b" * 40,
+        )
+        is None
+    ), "a prod build was refused over a pin it does not need"
+
+
+def test_publishing_anything_but_prod_ships_only_the_commit_written_down():
+    """beta and main move on their own, and a typed commit is whatever was typed.
+
+    Those are the cases where nothing has vouched for the code, so release.yaml is what
+    says which commit is meant. The refusal names the commit built and the commit
+    recorded, because a message that says only "refused" sends you reading the pipeline.
+    """
+    gate = _load_publish_gate()
+    built, pinned = "a" * 40, "b" * 40
+
+    for branch in ("beta", "main"):
+        refusal = gate.publish_refusal(
+            push=True,
+            branch=branch,
+            override="",
+            built_revision=built,
+            pinned_revision=pinned,
+        )
+        assert refusal, f"{branch} published without the commit being recorded"
+        assert built in refusal and pinned in refusal, refusal
+
+    # An exact commit asked for by hand is the same case, even off prod's own branch.
+    assert gate.publish_refusal(
+        push=True,
+        branch="prod",
+        override=built,
+        built_revision=built,
+        pinned_revision=pinned,
+    ), "an override published without the commit being recorded"
+
+    # ...and recording it is what allows it.
+    assert (
+        gate.publish_refusal(
+            push=True,
+            branch="main",
+            override="",
+            built_revision=built,
+            pinned_revision=built,
+        )
+        is None
+    )
+
+
+def test_a_build_that_recorded_no_commit_publishes_nothing():
+    """Found by fat-fingering the check's own shell exercise, which is the point.
+
+    The revision is read from the fetched checkout and stamped on the image as
+    `org.opencontainers.image.revision`. Empty means the fetch did not leave what it was
+    supposed to — and a prod build would otherwise sail past, publishing an image that
+    cannot say which source it was built from.
+    """
+    gate = _load_publish_gate()
+    for branch in ("prod", "main"):
+        assert gate.publish_refusal(
+            push=True,
+            branch=branch,
+            override="",
+            built_revision="  ",
+            pinned_revision="b" * 40,
+        ), f"a {branch} build published without recording a commit"
+
+
+def test_a_dry_run_is_never_gated():
+    """`PUSH=false` is how a Dockerfile change is tried against any branch; it publishes
+    nothing, so there is nothing to refuse."""
+    gate = _load_publish_gate()
+    assert (
+        gate.publish_refusal(
+            push=False,
+            branch="main",
+            override="",
+            built_revision="a" * 40,
+            pinned_revision="b" * 40,
+        )
+        is None
+    )
+
+
+def test_the_pipeline_actually_runs_the_publish_check():
+    """A rule nothing calls is a rule nobody follows — which is how the first version of
+    this check sat in a comment for months, describing a review the pipeline never did."""
+    assert "./scripts/check-publish-allowed.py" in PIPELINE
+    assert "--built-revision" in PIPELINE
+    assert "--release-file clearsignage/release.yaml" in PIPELINE
+    # The parameters the rule decides on have to reach it, including the fallback for a
+    # job configuration too old to have them.
+    assert "PUBLISH_BRANCH=${params.CLEARSIGNAGE_REF ?: 'prod'}" in PIPELINE
+    assert "PUBLISH_OVERRIDE=${params.CLEARSIGNAGE_REF_OVERRIDE ?: ''}" in PIPELINE
+    assert "PUBLISH_PUSH=${params.PUSH}" in PIPELINE
 
 
 def test_pipeline_defaults_to_prod_and_pins_the_resolved_revision():
