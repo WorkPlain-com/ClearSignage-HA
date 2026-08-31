@@ -22,7 +22,10 @@ clearsignage/
 scripts/
   fetch-source.sh            pin and fetch ClearSignage into the build context
   build.sh                   fetch + docker build, for one architecture
+  next-image-version.py      choose YYYYMMDD.NN and stamp it into the manifest
   check-publish-allowed.py   what may be published, and from where
+  prune-ghcr-releases.py     keep the current and previous releases, delete the rest
+  ghcr_api.py                the one way these two reach the GHCR package
 tests/test_packaging.py      what this repo can be wrong about
 clearsignage/release.yaml    the one commit publishable from somewhere other than prod
 ```
@@ -44,26 +47,36 @@ them into one multi-arch manifest with `imagetools create`, and pushes it to the
 
 ## Releasing
 
-Releasing what is on `prod` is two steps:
+**Run the Jenkins job with `PUSH=true`.** That is the whole of it — nothing in this
+repository is edited by hand to cut a release.
 
-1. Increment `version` in `clearsignage/config.yaml`. That is the **only** place the app
-   version lives: the Supervisor parses this manifest and tracks an installed app by it,
-   so it has to be a literal there, and the pipeline and the image labels read it from
-   there. Nothing else keeps a copy to edit in step.
-2. Run Jenkins with `PUSH=true` and `CLEARSIGNAGE_REF=prod` (the default). It builds and
-   publishes both `aarch64` and `amd64` as one manifest.
+Two things make that true. The version is chosen by the pipeline, and the branch is
+already released code:
 
-Nothing has to be pinned or re-approved here for that, because `prod` is ClearSignage's
-released branch: a commit only reaches it through that repository's own release gate, so
-building prod ships code that has already been signed off — whatever prod is on the day.
+- **The version** is `YYYYMMDD.NN` from the build's UTC date — the same scheme
+  ClearSignage releases use, chosen the same way: the counter comes from the tags already
+  in the GHCR package, not from a number in this repo, so it cannot collide with a version
+  somebody is already running. `scripts/next-image-version.py` chooses it, stamps it into
+  `clearsignage/config.yaml`, and the pipeline commits that line back to `main` after the
+  push. Home Assistant reads the version from the manifest **in this repository**, so
+  recording it is part of publishing: until it is committed, the Supervisor goes on
+  offering the version the file still names.
+- **The branch** defaults to `prod`, which is ClearSignage's released branch — a commit
+  only reaches it through that repository's own release gate — so building prod ships code
+  that has already been signed off, whatever prod is on the day.
 
 Then, before anyone upgrades:
 
-3. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
+1. Inspect `${IMAGE}:${APP_VERSION}` with `docker buildx imagetools inspect`, checking
    both platforms and the `org.opencontainers.image.revision` label — that label is the
    exact upstream commit the image was built from.
-4. Only after that inspection, upgrade the Home Assistant installation to the new app
+2. Only after that inspection, upgrade the Home Assistant installation to the new app
    version.
+
+If the build publishes the image but cannot push the version commit — most likely a branch
+protection rule on `main` that the Jenkins credential cannot satisfy — it fails loudly and
+says so. No rebuild is needed in that case: set `version` in `clearsignage/config.yaml` to
+the version it published and commit that.
 
 **Publishing something other than `prod`** — a `beta` or `main` build, or an exact commit
 passed as `CLEARSIGNAGE_REF_OVERRIDE` — is the case where nothing has vouched for the

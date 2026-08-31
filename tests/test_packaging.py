@@ -13,6 +13,7 @@ skip that let eight designer tests sit red on ClearSignage's main for a year.
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import re
 from pathlib import Path
@@ -44,6 +45,10 @@ def _load_pruner():
 
 def _load_publish_gate():
     return _load_script("check-publish-allowed.py", "check_publish_allowed")
+
+
+def _load_version_chooser():
+    return _load_script("next-image-version.py", "next_image_version")
 
 
 def _dockerfile_directives() -> str:
@@ -85,6 +90,114 @@ def test_every_yaml_file_parses():
 def test_release_metadata_pins_a_reviewed_commit():
     assert re.fullmatch(r"[0-9a-f]{40}", RELEASE["clearsignage_revision"])
     assert RELEASE["clearsignage_ref"]
+
+
+def test_the_version_is_chosen_from_what_is_already_published():
+    """YYYYMMDD.NN, counted from the registry rather than from a number in the repo.
+
+    A counter kept in a file is wrong the moment two builds run from one commit, or a
+    publish fails after its version was written down. The tags cannot disagree with
+    themselves, which is why ClearSignage's own releases count from the objects in R2 and
+    this counts from the objects in GHCR.
+    """
+    chooser = _load_version_chooser()
+    day = dt.date(2026, 8, 31)
+
+    assert chooser.next_version([], day) == "20260831.01"
+    assert chooser.next_version(["20260831.01", "latest"], day) == "20260831.02"
+    # The per-architecture tags published beside the manifest are the same release.
+    arch_tags = ["20260831.01-aarch64", "20260831.01-amd64"]
+    assert chooser.next_version(arch_tags, day) == "20260831.02"
+    # Yesterday's releases, and the versions from before this scheme, are not this day's.
+    assert chooser.next_version(["20260830.09", "0.1.936", "20260831"], day) == "20260831.01"
+    # Counting reads the greatest, not the count: a pruned .01 must not be handed out twice.
+    assert chooser.next_version(["20260831.04"], day) == "20260831.05"
+
+
+def test_a_tag_for_today_that_makes_no_sense_stops_the_build():
+    """Skipping it is how a version gets handed out twice, and the second one overwrites
+    an image somebody is running. ClearSignage's own selector refuses for the same reason."""
+    chooser = _load_version_chooser()
+    with pytest.raises(ValueError):
+        chooser.next_version(["20260831.1"], dt.date(2026, 8, 31))
+
+
+def test_a_day_that_runs_out_of_counters_stops_rather_than_wrapping():
+    """Two digits is the format; .100 would sort below .99 and collide with a published
+    tag, so the ninety-ninth build of one day is where a person has to be told."""
+    chooser = _load_version_chooser()
+    with pytest.raises(OverflowError):
+        chooser.next_version(["20260831.99"], dt.date(2026, 8, 31))
+
+
+def test_stamping_the_manifest_touches_only_the_version():
+    """The manifest is mostly comments explaining the decisions in it, and a rewrite that
+    dropped them would be a silent loss no test would otherwise notice."""
+    chooser = _load_version_chooser()
+    original = (APP / "config.yaml").read_text(encoding="utf-8")
+    stamped = chooser.stamp_version(original, "20260831.07")
+
+    assert yaml.safe_load(stamped)["version"] == "20260831.07"
+    assert stamped.count("\n") == original.count("\n")
+    for line in original.splitlines():
+        if not line.startswith("version:"):
+            assert line in stamped, line
+
+    # Stamping the same version again is the no-op the pipeline relies on to tell
+    # "already recorded" from "needs a commit".
+    assert chooser.stamp_version(stamped, "20260831.07") == stamped
+
+
+def test_a_manifest_with_no_version_line_is_an_error_not_a_silent_no_op():
+    chooser = _load_version_chooser()
+    with pytest.raises(ValueError):
+        chooser.stamp_version("---\nname: ClearSignage\n", "20260831.01")
+
+
+def test_the_manifest_version_is_a_tag_the_registry_and_the_pruner_both_accept():
+    """One string has to be three things: a Docker tag, what the Supervisor tracks, and
+    something `prune-ghcr-releases.py` can order. A hand-written "1.0-beta" would publish
+    and then quietly stop being prunable."""
+    pruner = _load_pruner()
+    assert pruner.release_from_tags([CONFIG["version"]]) == CONFIG["version"]
+
+    # And the scheme is an upgrade from the versions that came before it, or Home
+    # Assistant would not offer the first dated release to anyone already installed.
+    assert pruner.version_key("20260831.01") > pruner.version_key(CONFIG["version"])
+
+
+def test_the_pipeline_chooses_the_version_and_records_what_it_published():
+    """Both halves, because either one alone is broken.
+
+    Choosing without recording publishes an image no install is offered — Home Assistant
+    reads the version from config.yaml in this repository, so an uncommitted version
+    reaches nobody. Recording without publishing first advertises a tag that is not in the
+    registry yet, and an operator upgrading in that window gets a pull failure.
+    """
+    assert "./scripts/next-image-version.py" in PIPELINE
+    assert '--config clearsignage/config.yaml' in PIPELINE
+    assert 'GHCR_TOKEN="${GHCR_PSW}"' in PIPELINE
+
+    record = PIPELINE.index("stage('Record the published version')")
+    publish = PIPELINE.index("stage('Build and publish')")
+    assert publish < record, "the version is recorded before the image it names exists"
+
+    recording = PIPELINE[record:]
+    assert "expression { params.PUSH }" in recording, "a dry run must not write to main"
+    assert '--set "${APP_VERSION}"' in recording, "the recorded version must be the built one"
+    assert "HEAD:main" in recording
+    assert "THE IMAGE IS PUBLISHED but its version was not recorded" in recording, (
+        "a failure here leaves a published image nobody is offered; it has to say so"
+    )
+
+
+def test_the_github_token_never_reaches_a_url_or_an_argument():
+    """The fetch stage went to the trouble of a temporary GIT_ASKPASS for this reason, and
+    the push added later is the obvious place for a PAT to end up in a remote URL — where
+    it lands in `git config`, in `ps` output, and in any command echo."""
+    assert "${GIT_PASSWORD}@github.com" not in PIPELINE
+    assert "${GITHUB_TOKEN}@github.com" not in PIPELINE
+    assert PIPELINE.count("GIT_ASKPASS") >= 2, "the push step authenticates some other way"
 
 
 def test_the_two_pinned_fields_name_the_same_release():
