@@ -182,6 +182,12 @@ def test_the_pipeline_chooses_the_version_and_records_what_it_published():
     publish = PIPELINE.index("stage('Build and publish')")
     assert publish < record, "the version is recorded before the image it names exists"
 
+    # And a build that is going to be refused should touch neither the manifest nor the
+    # registry: the check comes first.
+    assert PIPELINE.index("check-publish-allowed.py") < PIPELINE.index(
+        "next-image-version.py"
+    ), "the version is chosen before the build is known to be allowed to publish"
+
     recording = PIPELINE[record:]
     assert "expression { params.PUSH }" in recording, "a dry run must not write to main"
     assert '--set "${APP_VERSION}"' in recording, "the recorded version must be the built one"
@@ -189,6 +195,30 @@ def test_the_pipeline_chooses_the_version_and_records_what_it_published():
     assert "THE IMAGE IS PUBLISHED but its version was not recorded" in recording, (
         "a failure here leaves a published image nobody is offered; it has to say so"
     )
+
+
+def test_a_shell_step_survives_an_env_var_jenkins_decided_not_to_set():
+    """`withEnv` *removes* a variable whose value is empty; it does not set it to "".
+
+    So `CLEARSIGNAGE_REF_OVERRIDE ?: ''` — the ordinary case of no exact commit being
+    asked for — reaches the step as nothing at all, and `set -u` kills it with
+    "PUBLISH_OVERRIDE: unbound variable" before the script it feeds can apply its own
+    default. That is how the first build after this shipped failed.
+
+    It is asserted over every such variable rather than the one that broke, because the
+    trap is in Jenkins rather than in the line that hit it, and the next one added will
+    read exactly as safe as this one did.
+    """
+    assignments = re.findall(r'"(\w+)=(\$\{[^"]*\})"', PIPELINE)
+    emptyable = [name for name, value in assignments if "?: ''" in value]
+    assert emptyable, "no withEnv value can be empty; this test is watching nothing"
+
+    for name in emptyable:
+        assert f'"${{{name}}}"' not in PIPELINE, (
+            f"{name} can be empty, so Jenkins may not set it at all; "
+            f"read it as ${{{name}:-}} or `set -u` fails the step"
+        )
+        assert f"${{{name}:-" in PIPELINE, f"{name} is put in the environment but never read"
 
 
 def test_the_github_token_never_reaches_a_url_or_an_argument():

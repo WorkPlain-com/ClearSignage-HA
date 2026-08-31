@@ -185,29 +185,6 @@ EOF
                         returnStdout: true
                     ).trim()
 
-                    // The version is chosen here, not typed by a person: YYYYMMDD.NN from
-                    // this build's UTC date and the tags already in the GHCR package —
-                    // the same scheme ClearSignage releases use, and chosen the same way,
-                    // from the artefacts that exist rather than from a number somebody
-                    // remembered to edit.
-                    //
-                    // It is stamped straight into config.yaml because that manifest is
-                    // where Home Assistant reads it: the Supervisor tracks an installed
-                    // app by that literal and pulls image:<version>. The stamp is
-                    // committed back to the repository after a successful publish, so the
-                    // file records what was published rather than promising what will be.
-                    env.APP_VERSION = sh(
-                        script: '''#!/usr/bin/env bash
-                            set -euo pipefail
-
-                            GHCR_TOKEN="${GHCR_PSW}" ./scripts/next-image-version.py \
-                                --owner workplain-com \
-                                --package clearsignage-ha \
-                                --config clearsignage/config.yaml
-                        ''',
-                        returnStdout: true
-                    ).trim()
-
                     // What a release costs, and where the line is.
                     //
                     // Building `prod` publishes what prod is at the time, with nothing to
@@ -226,6 +203,14 @@ EOF
                     // retention rule. Nothing is gated when PUSH is off: that build
                     // publishes nothing, and it is how a Dockerfile change is tried out
                     // against any branch.
+                    //
+                    // Every one of these is read with a shell default, because withEnv
+                    // *removes* a variable whose value is empty rather than setting it to
+                    // "". No exact commit asked for is the ordinary case, so PUBLISH_OVERRIDE
+                    // arrives as nothing at all, and `set -u` then kills the step with
+                    // "unbound variable" before the script it feeds can apply its own
+                    // default. The defaults fail closed: an unset push flag is treated as a
+                    // publish, so a variable going missing can only ever refuse too much.
                     withEnv([
                         "PUBLISH_PUSH=${params.PUSH}",
                         "PUBLISH_BRANCH=${params.CLEARSIGNAGE_REF ?: 'prod'}",
@@ -235,13 +220,39 @@ EOF
                             set -euo pipefail
 
                             ./scripts/check-publish-allowed.py \
-                                --push "${PUBLISH_PUSH}" \
-                                --branch "${PUBLISH_BRANCH}" \
-                                --override "${PUBLISH_OVERRIDE}" \
-                                --built-revision "${RESOLVED_REF}" \
+                                --push "${PUBLISH_PUSH:-true}" \
+                                --branch "${PUBLISH_BRANCH:-prod}" \
+                                --override "${PUBLISH_OVERRIDE:-}" \
+                                --built-revision "${RESOLVED_REF:-}" \
                                 --release-file clearsignage/release.yaml
                         '''
                     }
+
+                    // Only now, once this build is allowed to publish at all: YYYYMMDD.NN
+                    // from the build's UTC date and the tags already in the GHCR package —
+                    // the same scheme ClearSignage releases use, and chosen the same way,
+                    // from the artefacts that exist rather than from a number somebody
+                    // remembered to edit.
+                    //
+                    // It is stamped straight into config.yaml because that manifest is
+                    // where Home Assistant reads it: the Supervisor tracks an installed app
+                    // by that literal and pulls image:<version>. The stamp is committed back
+                    // to the repository after a successful publish, so the file records what
+                    // was published rather than promising what will be.
+                    //
+                    // After the check rather than before it so a refused build touches
+                    // neither the manifest nor the registry.
+                    env.APP_VERSION = sh(
+                        script: '''#!/usr/bin/env bash
+                            set -euo pipefail
+
+                            GHCR_TOKEN="${GHCR_PSW}" ./scripts/next-image-version.py \
+                                --owner workplain-com \
+                                --package clearsignage-ha \
+                                --config clearsignage/config.yaml
+                        ''',
+                        returnStdout: true
+                    ).trim()
                 }
 
                 echo "Building ClearSignage ${env.RESOLVED_REF} as app version ${env.APP_VERSION}"
