@@ -27,6 +27,7 @@ CONFIG = yaml.safe_load((APP / "config.yaml").read_text())
 BUILD = yaml.safe_load((APP / "build.yaml").read_text())
 RELEASE = yaml.safe_load((APP / "release.yaml").read_text())
 PIPELINE = (REPO / "jenkinsfile-ha").read_text()
+RECORDER = (REPO / "scripts" / "record-published-version.sh").read_text()
 
 
 def _load_script(filename: str, module_name: str):
@@ -182,13 +183,63 @@ def test_the_pipeline_chooses_the_version_and_records_what_it_published():
     publish = PIPELINE.index("stage('Build and publish')")
     assert publish < record, "the version is recorded before the image it names exists"
 
+    # And a build that is going to be refused should touch neither the manifest nor the
+    # registry: the check comes first.
+    assert PIPELINE.index("check-publish-allowed.py") < PIPELINE.index(
+        "next-image-version.py"
+    ), "the version is chosen before the build is known to be allowed to publish"
+
     recording = PIPELINE[record:]
     assert "expression { params.PUSH }" in recording, "a dry run must not write to main"
-    assert '--set "${APP_VERSION}"' in recording, "the recorded version must be the built one"
-    assert "HEAD:main" in recording
-    assert "THE IMAGE IS PUBLISHED but its version was not recorded" in recording, (
-        "a failure here leaves a published image nobody is offered; it has to say so"
+    assert './scripts/record-published-version.sh' in recording
+    assert 'RECORD_VERSION="${APP_VERSION}"' in recording, (
+        "the recorded version must be the one that was built"
     )
+    # What that recorder does with it — plumbing, a retry on a moved branch, and a
+    # failure that says the image is published — is driven in test_record_version.py
+    # against real repositories, which is the point of it being a script.
+    assert "THE IMAGE IS PUBLISHED but its version was not recorded" in RECORDER, (
+        "a failure there leaves a published image nobody is offered; it has to say so"
+    )
+    assert "git checkout" not in RECORDER, (
+        "the recorder must not move the workspace: later stages run this build's scripts"
+    )
+
+
+def test_two_builds_cannot_choose_the_same_version():
+    """The version is chosen from the registry and only becomes taken when the image is
+    pushed, so the gap between the two is a race.
+
+    Two runs started together read the same tags, choose the same YYYYMMDD.NN, and the
+    second overwrites the first's image — a Docker tag is mutable, so nothing refuses it,
+    and `main` ends up naming one version that was two different builds. Serialising the
+    job is the whole fix.
+    """
+    assert "disableConcurrentBuilds()" in PIPELINE
+
+
+def test_a_shell_step_survives_an_env_var_jenkins_decided_not_to_set():
+    """`withEnv` *removes* a variable whose value is empty; it does not set it to "".
+
+    So `CLEARSIGNAGE_REF_OVERRIDE ?: ''` — the ordinary case of no exact commit being
+    asked for — reaches the step as nothing at all, and `set -u` kills it with
+    "PUBLISH_OVERRIDE: unbound variable" before the script it feeds can apply its own
+    default. That is how the first build after this shipped failed.
+
+    It is asserted over every such variable rather than the one that broke, because the
+    trap is in Jenkins rather than in the line that hit it, and the next one added will
+    read exactly as safe as this one did.
+    """
+    assignments = re.findall(r'"(\w+)=(\$\{[^"]*\})"', PIPELINE)
+    emptyable = [name for name, value in assignments if "?: ''" in value]
+    assert emptyable, "no withEnv value can be empty; this test is watching nothing"
+
+    for name in emptyable:
+        assert f'"${{{name}}}"' not in PIPELINE, (
+            f"{name} can be empty, so Jenkins may not set it at all; "
+            f"read it as ${{{name}:-}} or `set -u` fails the step"
+        )
+        assert f"${{{name}:-" in PIPELINE, f"{name} is put in the environment but never read"
 
 
 def test_the_github_token_never_reaches_a_url_or_an_argument():
