@@ -357,9 +357,12 @@ with open('clearsignage/build.yaml', encoding='utf-8') as file:
         // that does not exist in the registry yet, and an operator upgrading in that
         // window gets a pull failure that reads like a broken repository.
         //
-        // The commit is made on top of the current origin/main rather than on the commit
-        // this build checked out, because a merge between the two is not a conflict worth
-        // failing a published release over — the only change is one version line.
+        // The commit is made on top of whatever main is by then rather than on the commit
+        // this build checked out — two architectures take a while, and main has usually
+        // moved. The work is a script, not a heredoc, for the reason ClearSignage's QA
+        // report courier is one: a Jenkinsfile string can only be asserted by grepping it,
+        // and a grep cannot tell a push parented on the right commit from one parented on
+        // the wrong one. tests/test_record_version.py drives it against real repositories.
         stage('Record the published version') {
             when {
                 expression { params.PUSH }
@@ -403,47 +406,8 @@ EOF
                         export GIT_ASKPASS="${ASKPASS_SCRIPT}"
                         export GIT_TERMINAL_PROMPT=0
 
-                        TAG="v${APP_VERSION}"
-
-                        # Three attempts, because the only way this fails is somebody
-                        # merging to main while the two architectures were building.
-                        for attempt in 1 2 3; do
-                            git fetch origin main
-                            git checkout -f -B record-version FETCH_HEAD
-
-                            ./scripts/next-image-version.py \
-                                --config clearsignage/config.yaml \
-                                --set "${APP_VERSION}"
-
-                            if git diff --quiet -- clearsignage/config.yaml; then
-                                echo "config.yaml on main already records ${APP_VERSION}."
-                            else
-                                git -c user.email=ci@workplain.com -c user.name=Jenkins \
-                                    commit -m "ClearSignage HA ${APP_VERSION}" \
-                                    -- clearsignage/config.yaml
-                            fi
-
-                            if git push origin HEAD:main; then
-                                if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-                                    echo "Tag ${TAG} already exists; leaving it alone."
-                                else
-                                    git -c user.email=ci@workplain.com -c user.name=Jenkins \
-                                        tag -a "${TAG}" -m "ClearSignage HA ${APP_VERSION}"
-                                    git push origin "${TAG}"
-                                fi
-                                exit 0
-                            fi
-
-                            echo "main moved while this build ran; retrying (${attempt}/3)." >&2
-                        done
-
-                        echo "THE IMAGE IS PUBLISHED but its version was not recorded." >&2
-                        echo "ghcr.io/workplain-com/clearsignage-ha:${APP_VERSION} exists; main still" >&2
-                        echo "names an older version, so Home Assistant will not offer it. Set" >&2
-                        echo "version: \\"${APP_VERSION}\\" in clearsignage/config.yaml on main to fix" >&2
-                        echo "this — no rebuild is needed. A branch protection rule on main will" >&2
-                        echo "fail this every time until the Jenkins credential can push to it." >&2
-                        exit 1
+                        RECORD_VERSION="${APP_VERSION}" \
+                            ./scripts/record-published-version.sh
                     '''
                 }
             }

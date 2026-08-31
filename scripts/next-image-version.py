@@ -111,7 +111,16 @@ def published_tags(owner: str, package: str, token: str) -> list[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True, type=Path, help="the app manifest to stamp")
+    parser.add_argument("--config", type=Path, help="the app manifest to stamp in place")
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help=(
+            "read the manifest on stdin and write the stamped manifest to stdout, touching "
+            "no file; how the recorder stamps the branch's manifest rather than the "
+            "workspace's. Requires --set."
+        ),
+    )
     parser.add_argument("--owner", default="workplain-com")
     parser.add_argument("--package", default="clearsignage-ha")
     parser.add_argument(
@@ -122,6 +131,11 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--date", help="UTC date to choose for, as YYYYMMDD (default: today)")
     args = parser.parse_args(argv)
+
+    if args.stdin and not args.chosen:
+        parser.error("--stdin stamps a version that is already known; pass --set")
+    if not args.stdin and not args.config:
+        parser.error("--config is required unless the manifest comes in on --stdin")
 
     try:
         if args.chosen:
@@ -134,6 +148,12 @@ def main(argv: list[str]) -> int:
                 dt.datetime.strptime(args.date, "%Y%m%d").date() if args.date else utc_date()
             )
             version = next_version(published_tags(args.owner, args.package, token), chosen_date)
+
+        if args.stdin:
+            # stdout is the manifest here, so the version is not printed: the caller
+            # passed it in and anything else on this stream would end up in the commit.
+            sys.stdout.write(stamp_version(sys.stdin.read(), version))
+            return 0
 
         manifest = args.config.read_text(encoding="utf-8")
         args.config.write_text(stamp_version(manifest, version), encoding="utf-8")

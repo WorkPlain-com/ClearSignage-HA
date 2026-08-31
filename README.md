@@ -24,9 +24,12 @@ scripts/
   build.sh                   fetch + docker build, for one architecture
   next-image-version.py      choose YYYYMMDD.NN and stamp it into the manifest
   check-publish-allowed.py   what may be published, and from where
+  record-published-version.sh
+                             put the published version on the branch
   prune-ghcr-releases.py     keep the current and previous releases, delete the rest
   ghcr_api.py                the one way these two reach the GHCR package
 tests/test_packaging.py      what this repo can be wrong about
+tests/test_record_version.py the recorder, against real git repositories
 clearsignage/release.yaml    the one commit publishable from somewhere other than prod
 ```
 
@@ -57,10 +60,12 @@ already released code:
   ClearSignage releases use, chosen the same way: the counter comes from the tags already
   in the GHCR package, not from a number in this repo, so it cannot collide with a version
   somebody is already running. `scripts/next-image-version.py` chooses it, stamps it into
-  `clearsignage/config.yaml`, and the pipeline commits that line back to `main` after the
-  push. Home Assistant reads the version from the manifest **in this repository**, so
-  recording it is part of publishing: until it is committed, the Supervisor goes on
-  offering the version the file still names.
+  `clearsignage/config.yaml`, and `scripts/record-published-version.sh` commits that line
+  back to `main` after the push — onto whatever the branch is by then, built with git
+  plumbing so the workspace the rest of the build is using is never disturbed. Home
+  Assistant reads the version from the manifest **in this repository**, so recording it is
+  part of publishing: until it is committed, the Supervisor goes on offering the version
+  the file still names.
 - **The branch** defaults to `prod`, which is ClearSignage's released branch — a commit
   only reaches it through that repository's own release gate — so building prod ships code
   that has already been signed off, whatever prod is on the day.

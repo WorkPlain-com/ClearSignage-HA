@@ -27,6 +27,7 @@ CONFIG = yaml.safe_load((APP / "config.yaml").read_text())
 BUILD = yaml.safe_load((APP / "build.yaml").read_text())
 RELEASE = yaml.safe_load((APP / "release.yaml").read_text())
 PIPELINE = (REPO / "jenkinsfile-ha").read_text()
+RECORDER = (REPO / "scripts" / "record-published-version.sh").read_text()
 
 
 def _load_script(filename: str, module_name: str):
@@ -190,10 +191,18 @@ def test_the_pipeline_chooses_the_version_and_records_what_it_published():
 
     recording = PIPELINE[record:]
     assert "expression { params.PUSH }" in recording, "a dry run must not write to main"
-    assert '--set "${APP_VERSION}"' in recording, "the recorded version must be the built one"
-    assert "HEAD:main" in recording
-    assert "THE IMAGE IS PUBLISHED but its version was not recorded" in recording, (
-        "a failure here leaves a published image nobody is offered; it has to say so"
+    assert './scripts/record-published-version.sh' in recording
+    assert 'RECORD_VERSION="${APP_VERSION}"' in recording, (
+        "the recorded version must be the one that was built"
+    )
+    # What that recorder does with it — plumbing, a retry on a moved branch, and a
+    # failure that says the image is published — is driven in test_record_version.py
+    # against real repositories, which is the point of it being a script.
+    assert "THE IMAGE IS PUBLISHED but its version was not recorded" in RECORDER, (
+        "a failure there leaves a published image nobody is offered; it has to say so"
+    )
+    assert "git checkout" not in RECORDER, (
+        "the recorder must not move the workspace: later stages run this build's scripts"
     )
 
 
