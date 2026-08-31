@@ -17,6 +17,16 @@
 pipeline {
     agent any
 
+    options {
+        // One build at a time, because the version is chosen from the registry and only
+        // becomes taken when the image is pushed. Two runs started together both read the
+        // same tags, both choose YYYYMMDD.NN, and the second overwrites the first's image
+        // — a Docker tag is mutable, so nothing would refuse it and the repository would
+        // name one version for two different builds. Serialising the job closes that
+        // window entirely; nothing else here needs a lock.
+        disableConcurrentBuilds()
+    }
+
     parameters {
         // Which ClearSignage branch this image is built from.
         //

@@ -197,6 +197,18 @@ def test_the_pipeline_chooses_the_version_and_records_what_it_published():
     )
 
 
+def test_two_builds_cannot_choose_the_same_version():
+    """The version is chosen from the registry and only becomes taken when the image is
+    pushed, so the gap between the two is a race.
+
+    Two runs started together read the same tags, choose the same YYYYMMDD.NN, and the
+    second overwrites the first's image — a Docker tag is mutable, so nothing refuses it,
+    and `main` ends up naming one version that was two different builds. Serialising the
+    job is the whole fix.
+    """
+    assert "disableConcurrentBuilds()" in PIPELINE
+
+
 def test_a_shell_step_survives_an_env_var_jenkins_decided_not_to_set():
     """`withEnv` *removes* a variable whose value is empty; it does not set it to "".
 
