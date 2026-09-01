@@ -160,11 +160,14 @@ def test_the_manifest_version_is_a_tag_the_registry_and_the_pruner_both_accept()
     something `prune-ghcr-releases.py` can order. A hand-written "1.0-beta" would publish
     and then quietly stop being prunable."""
     pruner = _load_pruner()
+    assert re.fullmatch(r"\d{8}\.\d{2}", CONFIG["version"])
     assert pruner.release_from_tags([CONFIG["version"]]) == CONFIG["version"]
 
-    # And the scheme is an upgrade from the versions that came before it, or Home
-    # Assistant would not offer the first dated release to anyone already installed.
-    assert pruner.version_key("20260831.01") > pruner.version_key(CONFIG["version"])
+    # The first dated release had to be newer than the legacy version.  Once Jenkins
+    # successfully recorded that release (and every release after it), the manifest is
+    # expected to be equal to or newer than that boundary.  Comparing in the opposite
+    # direction made validation fail immediately after its own first successful run.
+    assert pruner.version_key(CONFIG["version"]) >= pruner.version_key("20260831.01")
 
 
 def test_the_pipeline_chooses_the_version_and_records_what_it_published():
