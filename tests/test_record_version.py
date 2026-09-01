@@ -16,6 +16,7 @@ being recorded.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -52,7 +53,17 @@ def origin_and_workspace(tmp_path):
 
     _git(tmp_path, "init", "-q", "--bare", "--initial-branch=main", str(origin))
     _git(tmp_path, "init", "-q", "--initial-branch=main", str(seed))
-    _commit(seed, MANIFEST, (REPO_ROOT / MANIFEST).read_text(encoding="utf-8"), "seed")
+    # The repository manifest records the last published release.  Do not seed that
+    # release into a test whose job is to record the same example version: once the
+    # first real dated release was committed, that made every write-path case silently
+    # take the idempotent "already records" path instead.  A pre-dated release models
+    # the branch state before the publication under test and keeps this fixture valid
+    # after every successful pipeline run updates the real manifest.
+    manifest = (REPO_ROOT / MANIFEST).read_text(encoding="utf-8")
+    manifest = re.sub(
+        r"^version:.*$", 'version: "0.1.936"', manifest, count=1, flags=re.MULTILINE
+    )
+    _commit(seed, MANIFEST, manifest, "seed")
     _git(seed, "remote", "add", "origin", str(origin))
     _git(seed, "push", "-q", "origin", "main")
 
