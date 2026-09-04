@@ -14,7 +14,7 @@ name: ClearSignage
 # Editing it by hand only makes sense to repair a release the pipeline published but could
 # not record; setting it to a version that was never published leaves every install failing
 # at the pull.
-version: "20260903.03"
+version: "20260904.01"
 slug: clearsignage
 description: >-
   Run one or more ClearSignage screens inside Home Assistant, and let this machine be your
