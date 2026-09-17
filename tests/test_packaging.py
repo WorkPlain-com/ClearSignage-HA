@@ -555,6 +555,23 @@ def test_something_writes_the_copy_that_is_backed_up_instead():
     assert "clearvenue.backup_hook" in CONFIG["backup_pre"], CONFIG["backup_pre"]
 
 
+def test_nothing_that_is_a_second_whole_venue_rides_along_in_the_snapshot():
+    """Two files that are not the backup and would double every snapshot they appear in.
+
+    A `.damaged` database is one a repair moved aside because it would not open. It stays on
+    the box deliberately — a recovery tool may still read rows out of it — but it is a local
+    artefact, not something a restore ever wants, and it is the same size as the venue.
+
+    A `.partial` is the hand-over copy caught mid-write. The copy is written under that name
+    and moved into place, so one existing at all means an earlier hook died part way through:
+    rubbish by definition, and rubbish that looks like a database.
+    """
+    excluded = {one.rstrip("/") for one in CONFIG["backup_exclude"]}
+
+    assert "venue.sqlite3.damaged" in excluded, f"the snapshot doubles: {sorted(excluded)}"
+    assert "venue-for-backup.sqlite3.partial" in excluded
+
+
 def test_an_operators_own_copies_are_not_backed_up_as_well():
     """They are already copies of the venue, kept on their own rule and rotated on it.
 

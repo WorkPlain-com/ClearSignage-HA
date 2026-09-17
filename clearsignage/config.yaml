@@ -107,11 +107,21 @@ watchdog: "http://[HOST]:[PORT:8099]/"
 # adopts it on the next start when a restore has left it no database of its own.
 #
 # The hook exits non-zero when it cannot write one, because a backup with no venue data in
-# it looks exactly like a backup that worked.
+# it looks exactly like a backup that worked. A venue that has no database at all — a box
+# nobody has used yet — hands over nothing and exits zero: there is nothing to lose, and
+# failing every backup of an empty venue to catch a misconfiguration it does not have is the
+# worse trade. The add-on's own Settings page reports when a copy was last handed over.
 backup_exclude:
   - venue.sqlite3
   - venue.sqlite3-wal
   - venue.sqlite3-shm
+  # A database a repair moved aside because it would not open. It stays on the box for a
+  # recovery tool to read; putting a second whole venue in every snapshot until somebody
+  # deletes it is not what a backup is for.
+  - venue.sqlite3.damaged
+  # The hand-over copy is written under this name and moved into place, so this only exists
+  # where an earlier hook died part way through. It is rubbish by definition.
+  - venue-for-backup.sqlite3.partial
   # An operator's own copies, kept for their own reasons and rotated on their own rule.
   # Backing them up would put several copies of the venue in every snapshot.
   - copies/

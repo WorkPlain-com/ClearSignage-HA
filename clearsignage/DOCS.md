@@ -72,6 +72,10 @@ page says when this venue last gave Home Assistant a copy it could use — and s
 it never has. That is worth a glance on a quiet afternoon, because a backup that contains no
 venue data looks exactly like one that worked, right up until you need it.
 
+On a venue nobody has used yet it will say *never*, and that is correct rather than a
+problem: there is nothing in this venue to copy. It changes the first time a backup runs
+after you have put something in.
+
 You can also take a copy yourself from that same block, at any time, without waiting for a
 backup.
 
