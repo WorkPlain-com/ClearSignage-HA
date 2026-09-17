@@ -528,6 +528,93 @@ def test_the_watchdog_points_at_the_port_we_actually_serve():
     assert f"[PORT:{CONFIG['ingress_port']}]" in CONFIG["watchdog"]
 
 
+def test_the_live_database_is_kept_out_of_home_assistant_s_backup():
+    """A file-level copy of a live database is not a backup (Epic 149).
+
+    The venue writes its state as three files at once and the Supervisor copies them moments
+    apart while a kitchen is pressing buttons — so what comes back is a database missing the
+    last few hours, or one SQLite will not open. All three are excluded together: excluding
+    the database and leaving its write-ahead log behind would put half a database in the
+    backup, which is worse than either whole answer.
+    """
+    excluded = set(CONFIG["backup_exclude"])
+
+    assert {"venue.sqlite3", "venue.sqlite3-wal", "venue.sqlite3-shm"} <= excluded, (
+        f"a database and its log have to travel together or not at all: {sorted(excluded)}"
+    )
+
+
+def test_something_writes_the_copy_that_is_backed_up_instead():
+    """Excluding the database without this is a backup with no venue in it.
+
+    The two halves are one decision and either alone is worse than neither: the exclusion
+    without the hook backs up nothing, and the hook without the exclusion backs up a torn
+    database beside a good copy of it.
+    """
+    assert "backup_pre" in CONFIG, "the database is excluded and nothing replaces it"
+    assert "clearvenue.backup_hook" in CONFIG["backup_pre"], CONFIG["backup_pre"]
+
+
+def test_nothing_that_is_a_second_whole_venue_rides_along_in_the_snapshot():
+    """Two files that are not the backup and would double every snapshot they appear in.
+
+    A `.damaged` database is one a repair moved aside because it would not open. It stays on
+    the box deliberately — a recovery tool may still read rows out of it — but it is a local
+    artefact, not something a restore ever wants, and it is the same size as the venue.
+
+    A `.partial` is the hand-over copy caught mid-write. The copy is written under that name
+    and moved into place, so one existing at all means an earlier hook died part way through:
+    rubbish by definition, and rubbish that looks like a database.
+    """
+    excluded = {one.rstrip("/") for one in CONFIG["backup_exclude"]}
+
+    assert "venue.sqlite3.damaged" in excluded, f"the snapshot doubles: {sorted(excluded)}"
+    assert "venue-for-backup.sqlite3.partial" in excluded
+
+
+def test_an_operators_own_copies_are_not_backed_up_as_well():
+    """They are already copies of the venue, kept on their own rule and rotated on it.
+
+    Backing them up would put several copies of the same venue in every snapshot, on a
+    machine whose disk the live database also has to write to.
+    """
+    assert any(one.rstrip("/") == "copies" for one in CONFIG["backup_exclude"])
+
+
+def test_the_add_on_is_called_clearvenue_and_its_slug_is_not():
+    """The rename, and the one field that must never move with it (Epic 149).
+
+    The Supervisor keys an add-on's persistent `/data` by its slug, so changing it makes this
+    a *different* add-on: a fresh empty `/data`, with `instances.json`, every screen's content
+    library and the venue database orphaned on the host while an operator looks at a venue
+    with no screens in it. There is no migration and this product does not do them (DP141).
+    """
+    assert CONFIG["name"] == "ClearVenue"
+    assert CONFIG["panel_title"] == "ClearVenue"
+    assert CONFIG["slug"] == "clearsignage", (
+        "changing the slug orphans every existing install's data"
+    )
+
+
+def test_this_platform_offers_no_local_names():
+    """Decided in Epic 149, and the manifest is where it has to be true.
+
+    Home Assistant has listened on 80 itself since 2026.9. Publishing anyway is worse than
+    losing the names: avahi's record carries no port, so the name resolves, this venue's bind
+    fails, and a volunteer typing it reaches Home Assistant's login page rather than the
+    screen. The option, its schema entry and the operator-facing text all go together — an
+    option left behind is one somebody sets expecting it to do something.
+    """
+    assert "vhost_port" not in CONFIG["options"]
+    assert "vhost_port" not in CONFIG["schema"]
+
+    docs = (APP / "DOCS.md").read_text()
+    assert "vhost_port" not in docs, "the docs still offer a setting that is gone"
+
+    translations = yaml.safe_load((APP / "translations" / "en.yaml").read_text())
+    assert "vhost_port" not in translations["configuration"]
+
+
 def test_every_option_is_explained_to_the_operator():
     """An option nobody can interpret is an option nobody will set correctly."""
     translations = yaml.safe_load((APP / "translations" / "en.yaml").read_text())
@@ -651,14 +738,24 @@ def test_the_run_script_agrees_with_the_dockerfile_about_where_the_app_is():
     assert fallback.group(1).rstrip("/") == from_dockerfile.group(1).rstrip("/")
 
 
-def test_host_ip_detection_cannot_kill_the_service_before_it_explains_itself():
-    """`set -e` plus a bare command substitution is a silent exit; the operator sees a
-    container that started and vanished. The detection may fail — it must not be fatal,
-    because the check right after it is what tells them to set host_ip by hand."""
+def test_nothing_in_the_run_script_can_kill_the_service_before_it_explains_itself():
+    """`set -e` plus a bare command substitution is a silent exit — a container that
+    started and vanished, having logged nothing an operator can act on.
+
+    This used to assert the one `ip route` line carried `|| true`. **Epic 149 deleted that
+    line**: working out this box's own address moved into `clearvenue/own_address.py`, where
+    it prefers a local address over a VPN's and — being Python rather than a shell seam —
+    has tests. So the assertion is the general one it should always have been: every command
+    substitution here either cannot fail the script or is a `bashio::config` read, which
+    answers for an option the manifest declares rather than running anything.
+    """
     run = _service_script("run", uncommented=True)
-    detection = re.search(r"^.*\bip route\b.*$", run, re.M)
-    assert detection, run
-    assert "|| true" in detection.group(0), detection.group(0)
+    assert "ip route" not in run, "the address guess is Python's now, and tested there"
+
+    for line in re.findall(r"^.*\$\(.*$", run, re.M):
+        assert "|| true" in line or "bashio::config" in line, (
+            f"this can exit the service with nothing in the log: {line.strip()}"
+        )
 
 
 def test_an_unset_host_ip_is_not_advertised_to_peers_as_the_string_null():

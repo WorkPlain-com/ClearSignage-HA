@@ -28,17 +28,15 @@ this repository — so rotating it is a change on each install and nothing here.
 
 | Option | Default | What it is |
 |---|---|---|
-| `host_ip` | *(blank)* | The address other screens use to reach this machine. Blank means the address on the default route, which is right on almost every home network. |
-| `vhost_port` | `80` | The port each screen's `.local` name answers on. |
+| `host_ip` | *(blank)* | The address other screens use to reach this machine. Blank means the app works it out, preferring an ordinary local address over a VPN one. |
 | `log_level` | `info` | |
 
-**`host_ip` is worth a second look if peer sync does not work.** This machine may have
-several addresses — a Docker bridge, a VPN, a second NIC — and screens elsewhere on the
-network need the one they can actually reach. The app logs the address it chose at start-up.
-
-**`vhost_port` is the one thing here likely to collide.** Port 80 is the default so a
-typed URL has no port in it. If another add-on already uses it, change this — the screens
-and the Home Assistant panel are unaffected either way, only the friendly names move.
+**Set `host_ip` yourself if this machine runs a VPN.** Tailscale, ZeroTier and the like give
+the machine an address that is not on your own network, and until recently this app could pick
+it — after which screens are told to reach the venue somewhere they cannot, and *nothing looks
+wrong*: the panel opens, the pages load, and only syncing quietly never happens. The app
+prefers a local address now and logs which one it chose and why, but you know which network
+your screens are on and this is where you say so. It is also shown on the **Screens** page.
 
 ## Reaching a screen
 
@@ -47,11 +45,39 @@ Three ways, and they are not equivalent:
 - **From the Home Assistant sidebar.** Home Assistant has already signed you in, so this
   is the path that can change what is on a screen. It also works from outside your home
   through Nabu Casa, with no port forwarding.
-- **`http://<name>.local`** — e.g. `http://lobby.local` — from a browser on the same
-  network. Convenient for a wall tablet. You will be asked for the screen's PIN.
 - **`http://<host>:810N`** — how *other screens* find and sync with this one, and the
   address to put a screen's `/display` on a dashboard (see below). Not somewhere to go
   looking for settings.
+
+**There are no `http://<name>.local` addresses here**, and that is deliberate rather than
+missing. A friendly name has to answer on port 80, and Home Assistant itself uses port 80 —
+so the name would resolve and land you on Home Assistant's own login page rather than the
+screen, which is more confusing than having no name at all. (They also never work when your
+screens are on a different network from this machine, whatever we do.) An appliance in a
+cupboard still publishes them; use the sidebar or the `:810N` address here.
+
+## Backups
+
+Home Assistant backs this app up with everything else, and there is nothing to set up. Two
+things are worth knowing.
+
+**What it takes is a copy, not the live database.** This venue writes its state as several
+files at once, and copying those while a kitchen is pressing buttons produces a database that
+is missing the last few hours or will not open at all. So the app hands Home Assistant a clean
+copy whenever a backup runs, and restores from that copy by itself the first time it starts
+afterwards. You do not have to do anything for either half.
+
+**Check it has actually done it.** The *If something goes wrong* block on the venue's Settings
+page says when this venue last gave Home Assistant a copy it could use — and says so loudly if
+it never has. That is worth a glance on a quiet afternoon, because a backup that contains no
+venue data looks exactly like one that worked, right up until you need it.
+
+On a venue nobody has used yet it will say *never*, and that is correct rather than a
+problem: there is nothing in this venue to copy. It changes the first time a backup runs
+after you have put something in.
+
+You can also take a copy yourself from that same block, at any time, without waiting for a
+backup.
 
 ## What is different from a Raspberry Pi
 
@@ -67,8 +93,8 @@ capability genuinely is not here, not because it was left out:
   in-place update would be thrown away the next time it restarts.
 - **No "sold out" / booking taps from the screen itself.** On an appliance those are
   authorised by *standing at the panel*, which a hosted screen has no way to check. Here
-  they are authorised by your Home Assistant login instead — so use the sidebar, not the
-  `.local` address, when you want to change something.
+  they are authorised by your Home Assistant login instead — so use the sidebar when you
+  want to change something.
 
 ## Putting a screen on a dashboard
 
@@ -129,10 +155,15 @@ Open **Till** from the Screens page to connect your point-of-sale account. You s
 the provider once, in your own browser; what comes back is stored here and refreshed
 automatically, and your screens are sent the prices only.
 
-**Your Home Assistant backups will contain that connection.** A backup includes this app's
-data, and many people sync backups to cloud storage — so treat one the way you would treat
-the password to the account itself. If a backup is ever shared or exposed, disconnect the
-till on the Till page: that revokes what the backup contains.
+**Your Home Assistant backups will contain that connection — and more.** A backup includes
+this app's data, and many people sync backups to cloud storage. Alongside the till it carries
+this venue's **sign-in PIN** and this machine's **identity key**, which is what your screens
+trust when they sync. The short version: *a backup of this venue is as sensitive as the venue
+itself*, and somebody holding one holds everything except your Home Assistant password.
+
+Treat one the way you would treat the password to the till account. If a backup is ever shared
+or exposed: disconnect the till on the Till page — that revokes what the backup contains — and
+change the venue's PIN in Settings.
 
 You can also add screens that are not run by this machine. **Other screens** on the Screens
 page finds ClearSignage screens elsewhere on your network and joins them to this venue, so

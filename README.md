@@ -1,6 +1,11 @@
-# ClearSignage — Home Assistant app
+# ClearVenue — Home Assistant app
 
-Private Home Assistant app repository for ClearSignage (Epic 119 Pass 4).
+Private Home Assistant app repository for ClearVenue (Epic 119 Pass 4; renamed in Epic 149).
+
+**The add-on's slug is still `clearsignage` and must stay that way.** The Supervisor keys an
+add-on's persistent `/data` by its slug, so renaming it would make this a different add-on:
+a fresh empty `/data`, with every screen's library and the venue database orphaned on the
+host. Only the display name moved.
 
 **Packaging only.** No product logic lives here. The supervisor that runs the screens is
 ClearSignage's own `hosted/` package, and it has its own test suite; this repo is the
